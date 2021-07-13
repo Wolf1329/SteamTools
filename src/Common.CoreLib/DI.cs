@@ -1,4 +1,4 @@
-﻿#if !NOT_DI
+#if !NOT_DI
 using Microsoft.Extensions.DependencyInjection;
 #endif
 using System.Linq;
@@ -12,15 +12,13 @@ namespace System
     /// <summary>
     /// 依赖注入服务组(DependencyInjection)
     /// </summary>
-    public static class DI
+    public static partial class DI
     {
 #if !NOT_DI
 
         static IServiceProvider? value;
 
         internal static bool IsInit => value != null;
-
-        internal static IServiceProvider Value => value ?? throw new NullReferenceException("init must be called.");
 
         /// <summary>
         /// 初始化依赖注入服务组(通过配置服务项的方式)
@@ -65,6 +63,32 @@ namespace System
         /// </summary>
         public static bool IsArm64 { get; }
 
+        /// <summary>
+        /// 当前是否运行在 macOS 上
+        /// </summary>
+        public static bool IsmacOS { get; }
+
+        /// <summary>
+        /// 当前是否运行在 iOS/iPadOS/watchOS 上
+        /// </summary>
+        public static bool IsiOSOriPadOSOrwatchOS { get; }
+
+        /// <summary>
+        /// 当前是否运行在 >= Windows 10 上
+        /// </summary>
+        public static bool IsWindows10OrLater { get; }
+
+        static bool? _IsDesktopBridge;
+        public static bool IsDesktopBridge
+        {
+            get => _IsDesktopBridge ?? false;
+            set
+            {
+                if (_IsDesktopBridge.HasValue) throw new NotSupportedException();
+                _IsDesktopBridge = value;
+            }
+        }
+
         const string DesktopWindowTypeNames =
             "Avalonia.Controls.Window, Avalonia.Controls" +
             "\n" +
@@ -76,7 +100,7 @@ namespace System
         {
             IsRunningOnMono = Type.GetType("Mono.Runtime") != null;
             var processArchitecture = RuntimeInformation.ProcessArchitecture;
-            IsX86OrX64 = processArchitecture == Architecture.X64 || processArchitecture == Architecture.X86;
+            IsX86OrX64 = processArchitecture is Architecture.X64 or Architecture.X86;
             IsArm64 = processArchitecture == Architecture.Arm64;
             static Platform RuntimeInformationOSPlatform()
             {
@@ -104,11 +128,20 @@ namespace System
             Platform = RuntimeInformationOSPlatform();
             DeviceIdiom = GetDeviceIdiom();
 #endif
+            if (Platform == Platform.Apple)
+            {
+                IsmacOS = DeviceIdiom == DeviceIdiom.Desktop;
+                IsiOSOriPadOSOrwatchOS = !IsmacOS;
+            }
+            else if (Platform == Platform.Windows)
+            {
+                IsWindows10OrLater = Environment.OSVersion.Version.Major >= 10;
+            }
         }
 
 #if !NOT_DI
 
-        static Exception GetDIGetFailException(Exception e, Type serviceType) => new($"DI.Get fail, serviceType: {serviceType}", e);
+        static Exception GetDIGetFailException(Type serviceType) => new($"DI.Get* fail, serviceType: {serviceType}");
 
         /// <summary>
         /// 获取依赖注入服务
@@ -117,56 +150,51 @@ namespace System
         /// <returns></returns>
         public static T Get<T>() where T : notnull
         {
-            try
+            if (value == null)
             {
-                return Value.GetRequiredService<T>();
+                throw GetDIGetFailException(typeof(T));
             }
-            catch (NullReferenceException e)
-            {
-                throw GetDIGetFailException(e, typeof(T));
-            }
+            return value.GetRequiredService<T>();
         }
 
         /// <inheritdoc cref="Get{T}"/>
         public static T? Get_Nullable<T>() where T : notnull
         {
-            try
+            if (value == null)
             {
-                return Value.GetService<T>();
+                throw GetDIGetFailException(typeof(T));
             }
-            catch (NullReferenceException e)
-            {
-                throw GetDIGetFailException(e, typeof(T));
-            }
+            return value.GetService<T>();
         }
 
         /// <inheritdoc cref="Get{T}"/>
         public static object Get(Type serviceType)
         {
-            try
+            if (value == null)
             {
-                return Value.GetRequiredService(serviceType);
+                throw GetDIGetFailException(serviceType);
             }
-            catch (NullReferenceException e)
-            {
-                throw GetDIGetFailException(e, serviceType);
-            }
+            return value.GetRequiredService(serviceType);
         }
 
         /// <inheritdoc cref="Get_Nullable{T}"/>
         public static object? Get_Nullable(Type serviceType)
         {
-            try
+            if (value == null)
             {
-                return Value.GetService(serviceType);
+                throw GetDIGetFailException(serviceType);
             }
-            catch (NullReferenceException e)
-            {
-                throw GetDIGetFailException(e, serviceType);
-            }
+            return value.GetService(serviceType);
         }
 
-        public static IServiceScope CreateScope() => Value.CreateScope();
+        public static IServiceScope CreateScope()
+        {
+            if (value == null)
+            {
+                throw new Exception("DI.CreateScope fail.");
+            }
+            return value.CreateScope();
+        }
 
 #endif
     }

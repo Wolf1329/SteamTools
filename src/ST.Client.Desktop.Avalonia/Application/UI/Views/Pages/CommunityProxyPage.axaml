@@ -34,9 +34,9 @@
               Margin="10 0 10 10"
               Classes="paper"
               Background="{DynamicResource ThemeBrushKey}">
-        <ListBox x:Name="items" Width="350"
-                       Items="{Binding Source={x:Static service:ProxyService.Current},Path=ProxyDomains,Mode=OneWay}"
-                       SelectedItem="{Binding Source={x:Static service:ProxyService.Current},Path=SelectGroup,Mode=TwoWay}"
+        <ListBox x:Name="items" Classes="metro" Width="350"
+                       Items="{ReflectionBinding Source={x:Static service:ProxyService.Current},Path=ProxyDomainsList,Mode=OneWay}"
+                       SelectedItem="{ReflectionBinding Source={x:Static service:ProxyService.Current},Path=SelectGroup,Mode=TwoWay}"
                        ScrollViewer.VerticalScrollBarVisibility="Auto"
                        AutoScrollToSelectedItem="True"
                        Background="Transparent">
@@ -89,16 +89,16 @@
             <StackPanel HorizontalAlignment="Right">
               <TextBlock Text="{ReflectionBinding Path=Res.CommunityFix_ProxyMode,Mode=OneWay,Source={x:Static resx:R.Current}}" Margin="0 5"
                Foreground="{DynamicResource HighlightForegroundBrushKey}"></TextBlock>
-              <RadioButton Content="{ReflectionBinding Path=Res.CommunityFix_ProxyMode_Hosts,Mode=OneWay,Source={x:Static resx:R.Current}}" IsChecked="{Binding Source={x:Static ms:ProxySettings.EnableWindowsProxy},Path=!Value, Mode=TwoWay}"></RadioButton>
-              <RadioButton Content="{ReflectionBinding Path=Res.CommunityFix_ProxyMode_WinSystem,Mode=OneWay,Source={x:Static resx:R.Current}}" IsChecked="{Binding Source={x:Static ms:ProxySettings.EnableWindowsProxy},Path=Value, Mode=TwoWay}"></RadioButton>
+              <RadioButton Content="{ReflectionBinding Path=Res.CommunityFix_ProxyMode_Hosts,Mode=OneWay,Source={x:Static resx:R.Current}}" ToolTip.Tip="{ReflectionBinding Path=Res.CommunityFix_ProxyMode_HostsTip,Mode=OneWay,Source={x:Static resx:R.Current}}" IsChecked="{Binding Source={x:Static ms:ProxySettings.EnableWindowsProxy},Path=!Value, Mode=TwoWay}"></RadioButton>
+              <RadioButton Content="{ReflectionBinding Path=Res.CommunityFix_ProxyMode_WinSystem,Mode=OneWay,Source={x:Static resx:R.Current}}" ToolTip.Tip="{ReflectionBinding Path=Res.CommunityFix_ProxyMode_WinSystemTip,Mode=OneWay,Source={x:Static resx:R.Current}}" IsChecked="{Binding Source={x:Static ms:ProxySettings.EnableWindowsProxy},Path=Value, Mode=TwoWay}"></RadioButton>
             </StackPanel>
           </WrapPanel>
         </Border>
 
         <Border DockPanel.Dock="Bottom" Grid.Column="1" Grid.Row="1" Classes="paper" Margin="0 0 10 10" Background="{DynamicResource ThemeBrushKey}">
           <Panel Margin="20 0">
-            <StackPanel>
-              <DockPanel Margin="0 10">
+            <DockPanel>
+              <DockPanel Margin="0 10" DockPanel.Dock="Top">
                 <CheckBox MinWidth="20"
                           Content="{ReflectionBinding Path=Res.CommunityFix_AllCheck,Mode=OneWay,Source={x:Static resx:R.Current}}"
                           IsChecked="{Binding #items.SelectedItem.ThreeStateEnable,Mode=TwoWay}">
@@ -110,7 +110,7 @@
                            Foreground="{DynamicResource HighlightForegroundBrushKey}"></TextBlock>
               </DockPanel>
 
-              <ScrollViewer>
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" DockPanel.Dock="Bottom">
                 <ItemsControl Items="{ReflectionBinding #items.SelectedItem.ObservableItems}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
@@ -130,7 +130,7 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </ScrollViewer>
-            </StackPanel>
+            </DockPanel>
           </Panel>
         </Border>
       </DockPanel>
@@ -141,21 +141,20 @@
           HorizontalAlignment="Stretch" IsVisible="{Binding Source={x:Static service:ProxyService.Current},Path=ProxyStatus,Mode=OneWay}">
       <StackPanel Grid.Row="0" HorizontalAlignment="Center" Margin="0 10 0 0" Spacing="10">
         <WrapPanel>
-          <TextBlock Text="{ReflectionBinding Path=Res.CommunityFix_AlreadyProxy,Mode=OneWay,Source={x:Static resx:R.Current}}" FontSize="26"></TextBlock>
-          <TextBlock FontSize="26" Text="{Binding AccelerateTime,Source={x:Static service:ProxyService.Current},StringFormat={}{0:HH:mm:ss}}"></TextBlock>
+          <TextBlock Text="{ReflectionBinding Path=Res.CommunityFix_AlreadyProxy,Mode=OneWay,Source={x:Static resx:R.Current}}" FontSize="26" VerticalAlignment="Center"></TextBlock>
+          <TextBlock FontSize="26" Text="{Binding AccelerateTime,Source={x:Static service:ProxyService.Current},StringFormat={}{0:HH:mm:ss}}" VerticalAlignment="Center"></TextBlock>
         </WrapPanel>
         <WrapPanel HorizontalAlignment="Center">
           <TextBlock Text="{ReflectionBinding Path=Res.CommunityFix_ProxyModeTip,Mode=OneWay,Source={x:Static resx:R.Current}}" FontSize="14"/>
-          <TextBlock x:Name="proxyModel" FontSize="14">
-            <i:Interaction.Behaviors>
-              <ia:DataTriggerBehavior Binding="{Binding Source={x:Static ms:ProxySettings.EnableWindowsProxy},Path=Value}}" ComparisonCondition="Equal" Value="True">
-                <ia:ChangePropertyAction TargetObject="{ReflectionBinding #proxyModel}" PropertyName="Text" Value="{ReflectionBinding Path=Res.CommunityFix_ProxyMode_WinSystem,Mode=OneWay,Source={x:Static resx:R.Current}}"/>
-              </ia:DataTriggerBehavior>
-              <ia:DataTriggerBehavior Binding="{Binding Source={x:Static ms:ProxySettings.EnableWindowsProxy},Path=Value}}" ComparisonCondition="Equal" Value="False">
-                <ia:ChangePropertyAction TargetObject="{ReflectionBinding #proxyModel}" PropertyName="Text" Value="{ReflectionBinding Path=Res.CommunityFix_ProxyMode_Hosts,Mode=OneWay,Source={x:Static resx:R.Current}}"/>
-              </ia:DataTriggerBehavior>
-            </i:Interaction.Behaviors>
-          </TextBlock>
+
+          <TextBlock
+            Text="{ReflectionBinding Path=Res.CommunityFix_ProxyMode_WinSystem,Mode=OneWay,Source={x:Static resx:R.Current}}"
+            FontSize="14"
+            IsVisible="{ReflectionBinding Source={x:Static ms:ProxySettings.EnableWindowsProxy},Path=Value}}"/>
+          <TextBlock
+            Text="{ReflectionBinding Path=Res.CommunityFix_ProxyMode_Hosts,Mode=OneWay,Source={x:Static resx:R.Current}}"
+            FontSize="14"
+            IsVisible="{ReflectionBinding Source={x:Static ms:ProxySettings.EnableWindowsProxy},Path=!Value}}"/>
         </WrapPanel>
       </StackPanel>
       <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="30" Margin="0 20">
@@ -201,7 +200,7 @@
       </StackPanel>
 
       <StackPanel Grid.Row="2" Margin="20 0 20 50">
-        <Button Classes="action" Content="{ReflectionBinding Path=Res.CommunityFix_StopProxy,Mode=OneWay,Source={x:Static resx:R.Current}}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="40" Width="250" VerticalContentAlignment="Center" FontSize="16" Command="{Binding StartProxyButton_Click}" CommandParameter="False"></Button>
+        <Button Classes="action" Content="{ReflectionBinding Path=Res.CommunityFix_StopProxy,Mode=OneWay,Source={x:Static resx:R.Current}}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" MinHeight="40" Width="250" VerticalContentAlignment="Center" FontSize="16" Command="{Binding StartProxyButton_Click}" CommandParameter="False"></Button>
       </StackPanel>
     </Grid>
   </Panel>

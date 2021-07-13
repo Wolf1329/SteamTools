@@ -1,4 +1,5 @@
-﻿using System.IO;
+using System.Diagnostics.CodeAnalysis;
+using System.IO;
 
 namespace System.Application.Models
 {
@@ -60,12 +61,28 @@ namespace System.Application.Models
 
     public class CircleImageStream : ImageClipStream
     {
-        public CircleImageStream(Stream stream) : base(stream)
+        private CircleImageStream(Stream stream) : base(stream)
         {
             Circle = true;
         }
 
-        public static implicit operator CircleImageStream?(Stream? stream)
+        private CircleImageStream(string filePath) : base(IOPath.OpenRead(filePath))
+        {
+            Circle = true;
+        }
+
+        [return: NotNullIfNotNull("stream")]
+        public static CircleImageStream? Convert(Stream? stream)
             => stream == null ? null : new(stream);
+
+        [return: NotNullIfNotNull("stream")]
+        public static implicit operator CircleImageStream?(Stream? stream) => Convert(stream);
+
+        [return: NotNullIfNotNull("filePath")]
+        public static CircleImageStream? Convert(string? filePath)
+            => filePath == null ? null : new(filePath);
+
+        [return: NotNullIfNotNull("filePath")]
+        public static implicit operator CircleImageStream?(string? filePath) => Convert(filePath);
     }
 }

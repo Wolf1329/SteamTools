@@ -1,4 +1,4 @@
-﻿using ReactiveUI;
+using ReactiveUI;
 using StatefulModel.EventListeners;
 using System.Application.UI.Resx;
 using System.Collections.Generic;
@@ -70,19 +70,8 @@ namespace System.Application.UI.ViewModels
             });
         }
 
-        internal async virtual void Initialize()
+        public async virtual void Initialize()
         {
-            await Task.CompletedTask;
-        }
-
-        protected bool IsFirstActivation = true;
-
-        internal async virtual void Activation()
-        {
-            if (IsFirstActivation)
-            {
-                IsFirstActivation = false;
-            }
             await Task.CompletedTask;
         }
     }

@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:controls="clr-namespace:System.Application.UI.Views.Controls;assembly=System.Application.SteamTools.Client.Desktop.Avalonia"
              xmlns:vm="clr-namespace:System.Application.UI.ViewModels;assembly=System.Application.SteamTools.Client.Desktop"
+             xmlns:service="clr-namespace:System.Application.Services;assembly=System.Application.SteamTools.Client.Desktop"
              xmlns:resx="clr-namespace:System.Application.UI.Resx;assembly=System.Application.SteamTools.Client.Desktop"
              xmlns:gif="clr-namespace:AvaloniaGif;assembly=AvaloniaGif"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
@@ -76,7 +77,9 @@
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
   </UserControl.Styles>
-  <Border Padding="{StaticResource PageMargin2}">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto"
+                Padding="{StaticResource PageMargin2}">
     <DockPanel>
       <StackPanel Spacing="10" DockPanel.Dock="Top">
         <StackPanel Orientation="Horizontal">
@@ -88,14 +91,22 @@
         </StackPanel>
         <StackPanel Orientation="Horizontal">
           <TextBlock Classes="Header light"
+                     Margin="0,0,6,0"
                      Text="{Binding LabelVersionDisplay,Mode=OneTime}"
                      VerticalAlignment="Center"/>
           <TextBox Classes="Content readonlybox"
+                   IsReadOnly="True"
+                   MinWidth="10" Margin="0,0,6,0"
                    Text="{Binding VersionDisplay,Mode=OneTime}"/>
+          <Button Classes="plain" Command="{Binding CheckUpdateCommand}"
+                  VerticalAlignment="Center" VerticalContentAlignment="Center">
+            <TextBlock Text="{ReflectionBinding Path=Res.CheckUpdate,Source={x:Static resx:R.Current},Mode=OneWay}" Classes="Hyperlink" />
+          </Button>
         </StackPanel>
-        <StackPanel Orientation="Horizontal" Spacing="5">
+        <StackPanel Orientation="Horizontal">
           <TextBlock Classes="Header light"
-                     Text="Development: "
+                     Margin="0,0,6,0"
+                     Text="Developers:"
                      VerticalAlignment="Center"/>
           <Button Classes="plain" Command="{Binding OpenBrowserCommand}"
                           CommandParameter="{x:Static vm:AboutPageViewModel.RmbadminLink}">
@@ -114,7 +125,8 @@
         </StackPanel>
         <StackPanel Orientation="Horizontal">
           <TextBlock Classes="Header light"
-                     Text="Business and Art: "
+                     Margin="0,0,6,0"
+                     Text="Business Cooperation Contact:"
                      VerticalAlignment="Center"/>
           <Button Classes="plain" Command="{Binding OpenBrowserCommand}"
                           CommandParameter="{x:Static vm:AboutPageViewModel.CliencerLink}">
@@ -123,7 +135,7 @@
         </StackPanel>
 
         <WrapPanel>
-          <TextBlock Margin=" 0 0 0 -0.5"
+          <TextBlock Margin=" 0 0 6 -0.5"
                      VerticalAlignment="Center"
                      Text="This open source software is licensed with " />
           <StackPanel Orientation="Horizontal" Spacing="5" Margin="2">
@@ -135,9 +147,42 @@
           </StackPanel>
         </WrapPanel>
 
-        <WrapPanel>
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Classes="Header light"
+                     Margin="0,0,6,0"
+                     Text="Contributors:"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Classes="Header light"
+                     Margin="0,0,6,0"
+                     Opacity="0"
+                     Text="Contributors:"
+                     VerticalAlignment="Center"/>
+          <Button Classes="plain" Command="{Binding ContributorsCommand}"
+                          CommandParameter="Zhengye">
+            <TextBlock Text="Zhengye" Classes="Hyperlink" />
+          </Button>
+          <TextBlock Classes="LinkSeparatorPadding" Text="-" />
+          <TextBlock Text="Italian Translation" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Classes="Header light"
+                     Margin="0,0,6,0"
+                     Opacity="0"
+                     Text="Contributors:"
+                     VerticalAlignment="Center"/>
+          <Button Classes="plain" Command="{Binding ContributorsCommand}"
+                          CommandParameter="沙中金">
+            <TextBlock Text="沙中金" Classes="Hyperlink" />
+          </Button>
+          <TextBlock Classes="LinkSeparatorPadding" Text="-" />
+          <TextBlock Text="English Translation" />
+        </StackPanel>
+
+        <!--<WrapPanel>
           <gif:Image2 Width="500" Height="300" Stretch="UniformToFill" Source="avares://System.Application.SteamTools.Client.Desktop.Avalonia/Application/UI/Assets/AppResources/gg.gif"></gif:Image2>
-        </WrapPanel>
+        </WrapPanel>-->
       </StackPanel>
 
       <DockPanel VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0 0 0 20">
@@ -191,6 +236,13 @@
                         CommandParameter="{x:Static vm:AboutPageViewModel.PrivacyLink}">
               <TextBlock Text="{ReflectionBinding Path=Res.User_Privacy,Mode=OneWay,Source={x:Static resx:R.Current}}" Classes="Hyperlink" />
             </Button>
+            <TextBlock Classes="LinkSeparatorPadding" Text="-"
+                       IsVisible="{ReflectionBinding Path=IsAuthenticated,Source={x:Static service:UserService.Current}}" />
+            <Button Classes="plain"
+                    Command="{Binding DelAccountCommand}"
+                    IsVisible="{ReflectionBinding Path=IsAuthenticated,Source={x:Static service:UserService.Current}}">
+              <TextBlock Text="{ReflectionBinding Path=Res.DelAccount,Mode=OneWay,Source={x:Static resx:R.Current}}" Classes="Hyperlink" />
+            </Button>
           </StackPanel>
           <WrapPanel HorizontalAlignment="Center">
             <TextBlock Classes="h7 light"
@@ -198,8 +250,8 @@
                            VerticalAlignment="Center"/>
           </WrapPanel>
         </StackPanel>
-        <Panel Height="150" />
+        <!--<Panel Height="140" />-->
       </DockPanel>
     </DockPanel>
-  </Border>
+  </ScrollViewer>
 </UserControl>

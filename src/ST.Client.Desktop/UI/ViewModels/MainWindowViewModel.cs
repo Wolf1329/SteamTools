@@ -37,18 +37,19 @@ namespace System.Application.UI.ViewModels
 
         #endregion
 
-        public StartPageViewModel StartPage { get; }
-        public CommunityProxyPageViewModel CommunityProxyPage { get; }
-        public ProxyScriptManagePageViewModel ProxyScriptPage { get; }
-        public SteamAccountPageViewModel SteamAccountPage { get; }
-        public GameListPageViewModel GameListPage { get; }
-        public LocalAuthPageViewModel LocalAuthPage { get; }
-        public SteamIdlePageViewModel SteamIdlePage { get; }
-        public ArchiSteamFarmPlusPageViewModel ASFPage { get; }
-        public GameRelatedPageViewModel GameRelatedPage { get; }
-        public OtherPlatformPageViewModel OtherPlatformPage { get; }
+        public StartPageViewModel StartPage => GetTabItemVM<StartPageViewModel>();
+        public CommunityProxyPageViewModel CommunityProxyPage => GetTabItemVM<CommunityProxyPageViewModel>();
+        public ProxyScriptManagePageViewModel ProxyScriptPage => GetTabItemVM<ProxyScriptManagePageViewModel>();
+        public SteamAccountPageViewModel SteamAccountPage => GetTabItemVM<SteamAccountPageViewModel>();
+        public GameListPageViewModel GameListPage => GetTabItemVM<GameListPageViewModel>();
+        public LocalAuthPageViewModel LocalAuthPage => GetTabItemVM<LocalAuthPageViewModel>();
+        public SteamIdlePageViewModel SteamIdlePage => GetTabItemVM<SteamIdlePageViewModel>();
+        public ArchiSteamFarmPlusPageViewModel ASFPage => GetTabItemVM<ArchiSteamFarmPlusPageViewModel>();
+        public GameRelatedPageViewModel GameRelatedPage => GetTabItemVM<GameRelatedPageViewModel>();
+        public OtherPlatformPageViewModel OtherPlatformPage => GetTabItemVM<OtherPlatformPageViewModel>();
 
-        public IReadOnlyList<TabItemViewModel> TabItems { get; set; }
+        readonly Dictionary<Type, Lazy<TabItemViewModel>> mTabItems = new();
+        public IEnumerable<TabItemViewModel> TabItems => mTabItems.Values.Select(x => x.Value);
 
         public MainWindowViewModel() : base()
         {
@@ -61,57 +62,53 @@ namespace System.Application.UI.ViewModels
 
             OpenUserMenu = ReactiveCommand.Create(() =>
             {
-                IsOpenUserMenu = UserService.Current.User != null;
+                IsOpenUserMenu = UserService.Current.IsAuthenticated;
                 if (!IsOpenUserMenu)
                 {
                     UserService.Current.ShowWindow(CustomWindow.LoginOrRegister);
                 }
             });
 
-            var tabItems = new List<TabItemViewModel>
-            {
-                //(StartPage = new StartPageViewModel().AddTo(this)),
-                (CommunityProxyPage = new CommunityProxyPageViewModel().AddTo(this)),
-                (ProxyScriptPage = new ProxyScriptManagePageViewModel().AddTo(this)),
-                (SteamAccountPage = new SteamAccountPageViewModel().AddTo(this)),
-                (GameListPage = new GameListPageViewModel().AddTo(this)),
-                (LocalAuthPage = new LocalAuthPageViewModel().AddTo(this)),
-                //(SteamIdlePage = new SteamIdlePageViewModel().AddTo(this)),
-                //(ASFPage = new ArchiSteamFarmPlusPageViewModel().AddTo(this)),
-                //(GameRelatedPage = new GameRelatedPageViewModel().AddTo(this)),
-                //(OtherPlatformPage = new OtherPlatformPageViewModel().AddTo(this)),
+            //AddTabItem<StartPageViewModel>();
+            AddTabItem<CommunityProxyPageViewModel>();
+            AddTabItem<ProxyScriptManagePageViewModel>();
+            AddTabItem<SteamAccountPageViewModel>();
+            AddTabItem<GameListPageViewModel>();
+            AddTabItem<LocalAuthPageViewModel>();
+            AddTabItem<ArchiSteamFarmPlusPageViewModel>();
+            //AddTabItem<SteamIdlePageViewModel>();
+            if (DI.Platform == Platform.Windows)
+                AddTabItem<GameRelatedPageViewModel>();
+            //AddTabItem<OtherPlatformPageViewModel>();
 
-				#region SystemTab
-                SettingsPageViewModel.Instance,
-                AboutPageViewModel.Instance,
-				#endregion
-            };
+            AddTabItem(() => SettingsPageViewModel.Instance);
+            AddTabItem(() => AboutPageViewModel.Instance);
 
             if (AppHelper.EnableDevtools)
             {
-                tabItems.Add(new DebugPageViewModel().AddTo(this));
-                tabItems.Add(new DebugWebViewPageViewModel().AddTo(this));
+                AddTabItem<DebugPageViewModel>();
+                if (AppHelper.IsSystemWebViewAvailable)
+                {
+                    AddTabItem<DebugWebViewPageViewModel>();
+                }
             }
-
-            TabItems = tabItems;
 
             _SelectedItem = TabItems.First();
 
             Task.Run(Initialize).ForgetAndDispose();
 
-            this.WhenAnyValue(x => x.SelectedItem)
-                .Subscribe(x =>
-                {
-                    Task.Run(x.Activation).ForgetAndDispose();
-                });
+            //this.WhenAnyValue(x => x.SelectedItem)
+            //    .Subscribe(x =>
+            //    {
+            //        Task.Run(x.Activation).ForgetAndDispose();
+            //    });
         }
 
         public void Initialize()
         {
             Threading.Thread.CurrentThread.IsBackground = true;
-            SteamConnectService.Current.Initialize();
             ProxyService.Current.Initialize();
-            AuthService.Current.Initialize();
+            SteamConnectService.Current.Initialize();
 
             if (!IsInitialized)
             {
@@ -123,5 +120,19 @@ namespace System.Application.UI.ViewModels
                 IsInitialized = true;
             }
         }
+
+        void AddTabItem<TabItemVM>() where TabItemVM : TabItemViewModel, new()
+        {
+            Lazy<TabItemViewModel> value = new(() => new TabItemVM().AddTo(this));
+            mTabItems.Add(typeof(TabItemVM), value);
+        }
+
+        void AddTabItem<TabItemVM>(Func<TabItemVM> func) where TabItemVM : TabItemViewModel
+        {
+            Lazy<TabItemViewModel> value = new(func);
+            mTabItems.Add(typeof(TabItemVM), value);
+        }
+
+        TabItemVM GetTabItemVM<TabItemVM>() where TabItemVM : TabItemViewModel => (TabItemVM)mTabItems[typeof(TabItemVM)].Value;
     }
 }

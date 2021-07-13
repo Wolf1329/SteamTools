@@ -1,4 +1,3 @@
-using System;
 using System.Application.Models;
 using System.Application.Properties;
 using System.Collections.Generic;
@@ -6,11 +5,16 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Properties;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Titanium.Web.Proxy;
 using Titanium.Web.Proxy.EventArguments;
@@ -39,8 +43,12 @@ namespace System.Application.Services.Implementation
 
         public int ProxyPort { get; set; } = 26501;
 
+        public IPAddress ProxyIp { get; set; } = IPAddress.Any;
+
         public bool ProxyRunning => proxyServer.ProxyRunning;
         public IList<HttpHeader> JsHeader => new List<HttpHeader>() { new HttpHeader("Content-Type", "text/javascript;charset=UTF-8") };
+
+        public const string LocalDomain = "local.steampp.net";
 
         public HttpProxyServiceImpl()
         {
@@ -48,17 +56,70 @@ namespace System.Application.Services.Implementation
             //    proxyServer.CertificateManager.CertificateEngine = CertificateEngine.DefaultWindows;
             //else
             proxyServer.EnableConnectionPool = true;
-            proxyServer.CertificateManager.CertificateEngine = CertificateEngine.BouncyCastleFast;
+            // 可选地设置证书引擎
+            proxyServer.CertificateManager.CertificateEngine = CertificateEngine;
             //proxyServer.CertificateManager.PfxPassword = $"{CertificateName}";
-            proxyServer.ThreadPoolWorkerThread = Environment.ProcessorCount * 8;
+            //proxyServer.ThreadPoolWorkerThread = Environment.ProcessorCount * 8;
             proxyServer.CertificateManager.PfxFilePath = Path.Combine(IOPath.AppDataDirectory, $@"{CertificateName}.Certificate.pfx");
             proxyServer.CertificateManager.RootCertificateIssuerName = $"{CertificateName} Certificate Authority";
             proxyServer.CertificateManager.RootCertificateName = $"{CertificateName} Certificate";
             proxyServer.CertificateManager.CertificateValidDays = 300;
-            // 可选地设置证书引擎
-            proxyServer.CertificateManager.SaveFakeCertificates = true;
+            //proxyServer.CertificateManager.SaveFakeCertificates = true;
 
             proxyServer.CertificateManager.RootCertificate = proxyServer.CertificateManager.LoadRootCertificate();
+        }
+
+        public async Task HttpRequest(SessionEventArgs e)
+        {
+            //IHttpService.Instance.SendAsync<object>();
+            var url = Web.HttpUtility.UrlDecode(e.HttpClient.Request.RequestUri.Query.Replace("?request=", ""));
+            var cookie = e.HttpClient.Request.Headers.GetFirstHeader("cookie-steamTool")?.Value ??
+                e.HttpClient.Request.Headers.GetFirstHeader("Cookie")?.Value;
+            var headrs = new List<HttpHeader>() {
+                new HttpHeader("Access-Control-Allow-Origin", e.HttpClient.Request.Headers.GetFirstHeader("Origin")?.Value ?? "*"),
+                new HttpHeader("Access-Control-Allow-Headers", "*"), new HttpHeader("Access-Control-Allow-Methods", "*"),
+                new HttpHeader("Access-Control-Allow-Credentials", "true")
+            };
+            //if (cookie != null)
+            //    headrs.Add(new HttpHeader("Cookie", cookie));
+            if (e.HttpClient.Request.ContentType != null)
+                headrs.Add(new HttpHeader("Content-Type", e.HttpClient.Request.ContentType));
+            switch (e.HttpClient.Request.Method.ToUpperInvariant())
+            {
+                case "GET":
+                    var body = await IHttpService.Instance.GetAsync<string>(url, cookie: cookie);
+                    e.Ok(body ?? "500", headrs);
+                    return;
+                case "POST":
+                    var requestStream = new StreamWriter(new MemoryStream());
+                    try
+                    {
+                        if (e.HttpClient.Request.ContentLength > 0)
+                        {
+                            requestStream.Write(e.HttpClient.Request.BodyString);
+
+                            var send = new HttpRequestMessage
+                            {
+                                Method = HttpMethod.Post,
+                                Content = new StreamContent(requestStream.BaseStream),
+                            };
+                            send.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(e.HttpClient.Request.ContentType);
+                            send.Content.Headers.ContentLength = e.HttpClient.Request.BodyString.Length;
+                            var conext = await IHttpService.Instance.SendAsync<string>(url, send, null, false, new CancellationToken());
+                            e.Ok(conext ?? "500", headrs);
+                        }
+                        else
+                        {
+                            e.Ok("500", headrs);
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        e.Ok(error.Message ?? "500", headrs);
+                    }
+                    return;
+            }
+            //e.Ok(respone, new List<HttpHeader>() { new HttpHeader("Access-Control-Allow-Origin", e.HttpClient.Request.Headers.GetFirstHeader("Origin")?.Value ?? "*") });
         }
 
         public async Task OnRequest(object sender, SessionEventArgs e)
@@ -66,15 +127,34 @@ namespace System.Application.Services.Implementation
 #if DEBUG
             Debug.WriteLine("OnRequest " + e.HttpClient.Request.RequestUri.AbsoluteUri);
             Debug.WriteLine("OnRequest HTTP " + e.HttpClient.Request.HttpVersion);
+            Debug.WriteLine("ClientRemoteEndPoint " + e.ClientRemoteEndPoint.ToString());
 #endif
-            if (ProxyDomains is null)
+            if (ProxyDomains is null || e.HttpClient.Request.Host == null)
             {
                 return;
             }
-            if (e.HttpClient.Request.Host == "local.steampp.net")
+            if (e.HttpClient.Request.Host.Contains(LocalDomain, StringComparison.OrdinalIgnoreCase))
             {
-                e.Ok(Scripts.FirstOrDefault(x => x.JsPathUrl == e.HttpClient.Request.RequestUri.LocalPath)?.Content ?? "404", JsHeader);
-                return;
+                if (e.HttpClient.Request.Method.ToUpperInvariant() == "OPTIONS")
+                {
+                    e.Ok("", new List<HttpHeader>() {
+                        new HttpHeader("Access-Control-Allow-Origin", e.HttpClient.Request.Headers.GetFirstHeader("Origin")?.Value ?? "*"),
+                        new HttpHeader("Access-Control-Allow-Headers", "*"),
+                        new HttpHeader("Access-Control-Allow-Methods", "*"),
+                        new HttpHeader("Access-Control-Allow-Credentials", "true") });
+                    return;
+                }
+                var type = e.HttpClient.Request.Headers.GetFirstHeader("requestType")?.Value;
+                switch (type)
+                {
+                    case "xhr":
+                        await HttpRequest(e);
+
+                        return;
+                    default:
+                        e.Ok(Scripts.FirstOrDefault(x => x.JsPathUrl == e.HttpClient.Request.RequestUri.LocalPath)?.Content ?? "404", JsHeader);
+                        return;
+                }
             }
             foreach (var item in ProxyDomains)
             {
@@ -89,6 +169,12 @@ namespace System.Application.Services.Implementation
                         }
                         if (item.Redirect)
                         {
+                            if (CloudService.Constants.IsHttpUrl(item.ForwardDomainName))
+                            {
+                                e.Redirect(e.HttpClient.Request.RequestUri.AbsoluteUri.Replace(e.HttpClient.Request.RequestUri.Scheme + "://" + e.HttpClient.Request.RequestUri.Host, item.ForwardDomainName));
+                                return;
+                            }
+
                             e.Redirect(e.HttpClient.Request.RequestUri.AbsoluteUri.Replace(e.HttpClient.Request.RequestUri.Host, item.ForwardDomainName));
                             return;
                         }
@@ -111,7 +197,8 @@ namespace System.Application.Services.Implementation
                         {
                             e.HttpClient.UpStreamEndPoint = new IPEndPoint(ip, item.PortId);
                         }
-                        if (e.HttpClient.ConnectRequest?.ClientHelloInfo != null)
+                        //e.HttpClient.Request.Host = item.ForwardDomainName ?? e.HttpClient.Request.Host;
+                        if (e.HttpClient.ConnectRequest?.ClientHelloInfo?.Extensions != null)
                         {
                             //Logger.Info("ClientHelloInfo Info: " + e.HttpClient.ConnectRequest.ClientHelloInfo);
                             if (!string.IsNullOrEmpty(item.ServerName))
@@ -130,17 +217,19 @@ namespace System.Application.Services.Implementation
                 }
             }
 
-            var s = await Dns.GetHostAddressesAsync(e.HttpClient.Request.Host);
             //部分运营商将奇怪的域名解析到127.0.0.1 再此排除这些不支持的代理域名
-            if (IPAddress.IsLoopback(s.FirstOrDefault()) && ProxyDomains.Count(w => w.Enable && w.Hosts.Contains(e.HttpClient.Request.Host)) == 0)
+            //if (!e.IsTransparent)
+            //{
+            if (IPAddress.IsLoopback(e.ClientRemoteEndPoint.Address))
             {
                 e.TerminateSession();
+                Log.Info("Proxy", "IsLoopback OnRequest: " + e.HttpClient.Request.RequestUri.AbsoluteUri);
                 return;
             }
-            Log.Info("Proxy", "IsLoopback OnRequest: " + e.HttpClient.Request.RequestUri.AbsoluteUri);
+            //}
 
             ////没有匹配到的结果直接返回不支持,避免出现Loopback死循环内存溢出
-            //e.Ok($"URL : {e.HttpClient.Request.RequestUri.AbsoluteUri} {Environment.NewLine}not support proxy"); 
+            //e.Ok($"URL : {e.HttpClient.Request.RequestUri.AbsoluteUri} {Environment.NewLine}not support proxy");
             return;
         }
 
@@ -234,10 +323,13 @@ namespace System.Application.Services.Implementation
             // set e.clientCertificate to override
             return Task.CompletedTask;
         }
-
+        public void TrustCer() {
+            var filePath = Path.Combine(IOPath.AppDataDirectory, $@"{CertificateName}.Certificate.cer");
+            IPlatformService.Instance.AdminShell($"security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \"{filePath}\"", true);
+        }
         public bool SetupCertificate()
         {
-            // 此代理使用的本地信任根证书 
+            // 此代理使用的本地信任根证书
             //proxyServer.CertificateManager.TrustRootCertificate(true);
             //proxyServer.CertificateManager
             //    .CreateServerCertificate($"{Assembly.GetCallingAssembly().GetName().Name} Certificate")
@@ -249,10 +341,21 @@ namespace System.Application.Services.Implementation
                 Toast.Show(SR.CreateCertificateFaild);
                 return false;
             }
-            proxyServer.CertificateManager.RootCertificate.SaveCerCertificateFile(Path.Combine(IOPath.AppDataDirectory, $@"{CertificateName}.Certificate.cer"));
 
+            var filePath = Path.Combine(IOPath.AppDataDirectory, $@"{CertificateName}.Certificate.cer");
+
+            proxyServer.CertificateManager.RootCertificate.SaveCerCertificateFile(filePath);
+            try
+            {
+                proxyServer.CertificateManager.TrustRootCertificate();
+            }
+            catch { }
             proxyServer.CertificateManager.EnsureRootCertificate();
+            if (DI.IsmacOS)
+            {
+                TrustCer(); 
 
+            }
             return IsCertificateInstalled(proxyServer.CertificateManager.RootCertificate);
         }
 
@@ -293,7 +396,16 @@ namespace System.Application.Services.Implementation
             return true;
         }
 
-        public static bool PortInUse(int port)
+        public int GetRandomUnusedPort()
+        {
+            var listener = new TcpListener(ProxyIp, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+            return port;
+        }
+
+        public bool PortInUse(int port)
         {
             bool inUse = false;
 
@@ -323,53 +435,88 @@ namespace System.Application.Services.Implementation
                     return false;
                 }
             }
+            //else
+            //{
+            //    SetupCertificate();
+            //}
+
             if (IsProxyGOG) { WirtePemCertificateToGoGSteamPlugins(); }
 
             #region 启动代理
+            //proxyServer.Enable100ContinueBehaviour = true;
+            proxyServer.EnableHttp2 = true;
             proxyServer.BeforeRequest += OnRequest;
             proxyServer.BeforeResponse += OnResponse;
             proxyServer.ServerCertificateValidationCallback += OnCertificateValidation;
-            proxyServer.ClientCertificateSelectionCallback += OnCertificateSelection;
-
-            //var explicitEndPoint = new ExplicitProxyEndPoint(IPAddress.Any, 8888, true)
-            //{
-            //    // 在所有https请求上使用自颁发的通用证书
-            //    // 当代理客户端不需要证书信任时非常有用
-            //    //GenericCertificate = new X509Certificate2(Path.Combine(AppContext.BaseDirectory, "genericcert.pfx"), "password")
-            //};
-            var explicitProxyEndPoint = new ExplicitProxyEndPoint(IPAddress.Any, ProxyPort, true)
-            {
-                // 通过不启用为每个http的域创建证书来优化性能
-                //GenericCertificate = proxyServer.CertificateManager.RootCertificate
-            };
-            if (IsWindowsProxy)
-            {
-                //explicit endpoint 是客户端知道代理存在的地方
-                proxyServer.AddEndPoint(explicitProxyEndPoint);
-            }
-            else
-            {
-                //if (PortInUse(443))
-                //{
-                //    return false;
-                //}
-
-                proxyServer.AddEndPoint(new TransparentProxyEndPoint(IPAddress.Any, 443, true)
-                {
-                    // 通过不启用为每个http的域创建证书来优化性能
-                    //GenericCertificate = proxyServer.CertificateManager.RootCertificate
-                });
-                proxyServer.AddEndPoint(new TransparentProxyEndPoint(IPAddress.Any, 80, false));
-            }
-
-            proxyServer.ExceptionFunc = ((Exception exception) =>
-            {
-                Log.Error("Proxy", exception, "ProxyServer ExceptionFunc");
-            });
+            //proxyServer.ClientCertificateSelectionCallback += OnCertificateSelection;
 
             try
             {
+                var explicitProxyEndPoint = new ExplicitProxyEndPoint(ProxyIp, GetRandomUnusedPort(), true)
+                {
+                    // 通过不启用为每个http的域创建证书来优化性能
+                    //GenericCertificate = proxyServer.CertificateManager.RootCertificate
+                };
+                explicitProxyEndPoint.BeforeTunnelConnectRequest += ExplicitProxyEndPoint_BeforeTunnelConnectRequest;
+
+                if (IsWindowsProxy)
+                {
+                    //explicit endpoint 是客户端知道代理存在的地方
+                    proxyServer.AddEndPoint(explicitProxyEndPoint);
+                }
+                else
+                {
+                    //if (PortInUse(443))
+                    //{
+                    //    return false;
+                    //}
+                    var transparentProxyEndPoint = new TransparentProxyEndPoint(ProxyIp, 443, true)
+                    {
+                        // 通过不启用为每个http的域创建证书来优化性能
+                        //GenericCertificate = proxyServer.CertificateManager.RootCertificate
+                    };
+                    transparentProxyEndPoint.BeforeSslAuthenticate += TransparentProxyEndPoint_BeforeSslAuthenticate;
+
+                    proxyServer.AddEndPoint(transparentProxyEndPoint);
+
+                    if (PortInUse(80) == false)
+                        proxyServer.AddEndPoint(new TransparentProxyEndPoint(ProxyIp, 80, false));
+                }
+
+                proxyServer.ExceptionFunc = ((Exception exception) =>
+                {
+                    Log.Error("Proxy", exception, "ProxyServer ExceptionFunc");
+                });
+
                 proxyServer.Start();
+
+                if (IsWindowsProxy)
+                {
+                    if (DI.Platform == Platform.Windows)
+                    {
+                        proxyServer.SetAsSystemHttpProxy(explicitProxyEndPoint);
+                        proxyServer.SetAsSystemHttpsProxy(explicitProxyEndPoint);
+                    }
+                    else if (DI.IsmacOS)
+                    {
+                        var stringList = IPlatformService.Instance.GetMacNetworksetup();
+                        var shellContent = new StringBuilder();
+                        foreach (var item in stringList)
+                        {
+                            if (item.Trim().Length > 0) {
+                                //shellContent.AppendLine($"networksetup -setsocksfirewallproxy '{item}' '{explicitProxyEndPoint.IpAddress}' {explicitProxyEndPoint.Port}");
+                                //shellContent.AppendLine($"networksetup -setsocksfirewallproxystate '{item}' on");
+                                shellContent.AppendLine($"networksetup -setwebproxy '{item}' '127.0.0.1' {explicitProxyEndPoint.Port}");
+                                shellContent.AppendLine($"networksetup -setwebproxystate '{item}' on");
+                                shellContent.AppendLine($"networksetup -setsecurewebproxy '{item}' '127.0.0.1' {explicitProxyEndPoint.Port}");
+                                shellContent.AppendLine($"networksetup -setsecurewebproxystate '{item}' on");
+                            }
+                        }
+                        IPlatformService.Instance.AdminShell(shellContent.ToString(), false);
+
+                    }
+                }
+
             }
             catch (Exception ex)
             {
@@ -377,13 +524,6 @@ namespace System.Application.Services.Implementation
                 return false;
             }
 
-            if (IsWindowsProxy)
-            {
-                proxyServer.SetAsSystemHttpProxy(explicitProxyEndPoint);
-                proxyServer.SetAsSystemHttpsProxy(explicitProxyEndPoint);
-                //proxyServer.UpStreamHttpProxy = new ExternalProxy() { HostName = "localhost", Port = 26501 };
-                //proxyServer.UpStreamHttpsProxy = new ExternalProxy() { HostName = "localhost", Port = 26501 };      
-            }
             #endregion
 #if DEBUG
             foreach (var endPoint in proxyServer.ProxyEndPoints)
@@ -391,9 +531,88 @@ namespace System.Application.Services.Implementation
                     endPoint.GetType().Name, endPoint.IpAddress, endPoint.Port);
 #endif
             return true;
-
         }
 
+        private Task TransparentProxyEndPoint_BeforeSslAuthenticate(object sender, BeforeSslAuthenticateEventArgs e)
+        {
+            e.DecryptSsl = false;
+            if (e.SniHostName.Contains(LocalDomain, StringComparison.OrdinalIgnoreCase))
+            {
+                e.DecryptSsl = true;
+                return Task.CompletedTask;
+            }
+            if (ProxyDomains is null)
+            {
+                return Task.CompletedTask;
+            }
+            foreach (var item in ProxyDomains)
+            {
+                foreach (var host in item.DomainNamesArray)
+                {
+                    if (e.SniHostName.Contains(new Uri("https://" + host).Host))
+                    {
+                        e.DecryptSsl = true;
+                        return Task.CompletedTask;
+                    }
+                }
+            }
+
+            var ip = Dns.GetHostAddresses(e.SniHostName).FirstOrDefault();
+            if (IPAddress.IsLoopback(ip))
+            {
+                e.TerminateSession();
+                return Task.CompletedTask;
+            }
+            return Task.CompletedTask;
+        }
+
+        private Task ExplicitProxyEndPoint_BeforeTunnelConnectRequest(object sender, TunnelConnectSessionEventArgs e)
+        {
+            e.DecryptSsl = false;
+            if (ProxyDomains is null || e.HttpClient?.Request?.Host == null)
+            {
+                return Task.CompletedTask;
+            }
+            if (e.HttpClient.Request.Host.Contains(LocalDomain, StringComparison.OrdinalIgnoreCase))
+            {
+                e.DecryptSsl = true;
+                return Task.CompletedTask;
+            }
+            foreach (var item in ProxyDomains)
+            {
+                foreach (var host in item.DomainNamesArray)
+                {
+                    if (e.HttpClient.Request.Url.Contains(host))
+                    {
+                        e.DecryptSsl = true;
+                        return Task.CompletedTask;
+                    }
+                }
+            }
+            var ip = Dns.GetHostAddresses(e.HttpClient.Request.Host).FirstOrDefault();
+            if (IPAddress.IsLoopback(ip))
+            {
+                e.TerminateSession();
+                return Task.CompletedTask;
+            }
+            return Task.CompletedTask;
+        }
+        public void StopMacProxy()
+        {
+            var stringList = IPlatformService.Instance.GetMacNetworksetup();
+            var shellContent = new StringBuilder();
+            foreach (var item in stringList)
+            {
+                if (item.Trim().Length > 0)
+                { 
+                    //shellContent.AppendLine($"networksetup -setsocksfirewallproxystate '{item}' off");
+                    shellContent.AppendLine($"networksetup -setwebproxystate '{item}' off");
+                    shellContent.AppendLine($"networksetup -setsecurewebproxystate '{item}' off");
+                }
+            }
+            IPlatformService.Instance.AdminShell(shellContent.ToString(), false);
+
+        }
         public void StopProxy()
         {
             if (proxyServer.ProxyRunning)
@@ -402,9 +621,20 @@ namespace System.Application.Services.Implementation
                 proxyServer.BeforeResponse -= OnResponse;
                 proxyServer.ServerCertificateValidationCallback -= OnCertificateValidation;
                 proxyServer.ClientCertificateSelectionCallback -= OnCertificateSelection;
-                proxyServer.DisableSystemHttpProxy();
-                proxyServer.DisableSystemHttpsProxy();
+                if (DI.IsmacOS)
+                {
+                    StopMacProxy();
+                }
                 proxyServer.Stop();
+
+            }
+            try
+            {
+                proxyServer.DisableAllSystemProxies();
+            }
+            catch
+            {
+                //忽略异常导致的崩溃
             }
         }
 
@@ -447,7 +677,7 @@ namespace System.Application.Services.Implementation
                 return false;
             if (certificate2.NotAfter <= DateTime.Now)
                 return false;
-            using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
+            using var store = new X509Store(DI.Platform == Platform.Apple ? StoreName.My : StoreName.Root, StoreLocation.CurrentUser);
             store.Open(OpenFlags.MaxAllowed);
             return store.Certificates.Contains(certificate2);
         }
@@ -456,6 +686,10 @@ namespace System.Application.Services.Implementation
         {
             if (proxyServer.ProxyRunning)
             {
+                if (DI.IsmacOS)
+                {
+                    StopMacProxy();
+                }
                 proxyServer.Stop();
             }
             proxyServer.Dispose();

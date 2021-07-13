@@ -4,6 +4,7 @@ using System.Application.Properties;
 using System.Application.UI;
 using System.Diagnostics;
 using System.IO;
+using System.Properties;
 using System.Text;
 using static System.Application.Services.IAppUpdateService;
 
@@ -30,7 +31,7 @@ namespace System.Application.Services.Implementation
             }
             else // 全量更新
             {
-                var dirPath = Path.Combine(AppContext.BaseDirectory, Path.GetFileNameWithoutExtension(value));
+                var dirPath = Path.Combine(IOPath.BaseDirectory, Path.GetFileNameWithoutExtension(value));
 
                 if (Directory.Exists(dirPath))
                 {
@@ -57,23 +58,21 @@ namespace System.Application.Services.Implementation
                 var updateCommandPath = Path.Combine(IOPath.CacheDirectory, "update.cmd");
                 IOPath.FileIfExistsItDelete(updateCommandPath);
 
-                var echo = SR.ProgramUpdateEcho;
-                if (echo.Contains('"')) echo = "Steam++ is upgrading...";
-
                 var updateCommand = string.Format(
                    SR.ProgramUpdateCmd_,
                    AppHelper.ProgramName,
-                   dirPath,
-                   AppContext.BaseDirectory,
-                   AppHelper.ProgramName,
-                   echo);
+                   dirPath.TrimEnd(Path.DirectorySeparatorChar),
+                   IOPath.BaseDirectory,
+                   AppHelper.ProgramPath);
 
-                File.WriteAllText(updateCommandPath, updateCommand, Encoding.Default);
+                updateCommand = "chcp" + Environment.NewLine + "chcp 65001" + Environment.NewLine + updateCommand;
+
+                File.WriteAllText(updateCommandPath, updateCommand, Encoding.UTF8);
 
                 using var p = new Process();
                 p.StartInfo.FileName = updateCommandPath;
                 p.StartInfo.UseShellExecute = false;
-                p.StartInfo.CreateNoWindow = true; // 不显示程序窗口
+                p.StartInfo.CreateNoWindow = !ThisAssembly.Debuggable; // 不显示程序窗口
                 p.StartInfo.Verb = "runas"; // 管理员权限运行
                 p.Start(); // 启动程序
             }

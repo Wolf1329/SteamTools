@@ -111,6 +111,53 @@ namespace System.Application.UI.ViewModels
                     this.RaisePropertyChanged(nameof(IsSteamAppsEmpty));
                     this.CalcTypeCount();
                 });
+
+
+            HideAppCommand = ReactiveCommand.Create(OpenHideAppWindow);
+            IdleAppCommand = ReactiveCommand.Create(OpenIdleAppWindow);
+
+            EnableAFKAutoUpdateCommand = ReactiveCommand.Create(() =>
+            {
+                AFKAutoUpdate?.CheckmarkChange(SteamConnectService.Current.IsAutoAFKApps = !SteamConnectService.Current.IsAutoAFKApps);
+            });
+
+            MenuItems = new ObservableCollection<MenuItemViewModel>()
+            {
+                  (AFKAutoUpdate=new MenuItemViewModel (nameof(AppResources.GameList_AutoAFK))
+                   {Command=EnableAFKAutoUpdateCommand }),
+                  new MenuItemViewModel (),
+                  new MenuItemViewModel(nameof(AppResources.GameList_HideGameManger)){
+                      IconKey ="EyeHideDrawing", Command = HideAppCommand },
+                  new MenuItemViewModel (nameof(AppResources.GameList_IdleGamesManger)){
+                      IconKey ="TopSpeedDrawing", Command = IdleAppCommand },
+            };
+
+            AFKAutoUpdate?.CheckmarkChange(SteamConnectService.Current.IsAutoAFKApps);
+        }
+        public ReactiveCommand<Unit, Unit> EnableAFKAutoUpdateCommand { get; }
+
+        public MenuItemViewModel? AFKAutoUpdate { get; }
+        public void OpenHideAppWindow()
+        {
+            IShowWindowService.Instance.Show(CustomWindow.HideApp, new HideAppWindowViewModel(), string.Empty, ResizeModeCompat.CanResize);
+        }
+
+        public void OpenIdleAppWindow()
+        {
+            IShowWindowService.Instance.Show(CustomWindow.IdleApp, new IdleAppWindowViewModel(), string.Empty, ResizeModeCompat.CanResize);
+        }
+
+        public ReactiveCommand<Unit, Unit> HideAppCommand { get; }
+        public ReactiveCommand<Unit, Unit> IdleAppCommand { get; }
+
+        public override void Activation()
+        {
+            if (IsFirstActivation)
+            {
+                //SteamConnectService.Current.Initialize();
+                Task.Run(SteamConnectService.Current.RefreshGamesList).ForgetAndDispose();
+            }
+            base.Activation();
         }
 
         private bool _IsOpenFilter;
@@ -151,7 +198,7 @@ namespace System.Application.UI.ViewModels
             set => this.RaiseAndSetIfChanged(ref _SearchText, value);
         }
 
-        public bool IsSteamAppsEmpty => !SteamApps.Any_Nullable();
+        public bool IsSteamAppsEmpty => !SteamApps.Any_Nullable() && !SteamConnectService.Current.IsLoadingGameList;
 
         private ObservableCollection<EnumModel<SteamAppType>> _AppTypeFiltres = new();
         public ObservableCollection<EnumModel<SteamAppType>> AppTypeFiltres
@@ -159,7 +206,6 @@ namespace System.Application.UI.ViewModels
             get => _AppTypeFiltres;
             set => this.RaiseAndSetIfChanged(ref _AppTypeFiltres, value);
         }
-
 
         private IReadOnlyCollection<EnumModel<SteamAppType>> _EnableAppTypeFiltres = new List<EnumModel<SteamAppType>>();
         public IReadOnlyCollection<EnumModel<SteamAppType>> EnableAppTypeFiltres
@@ -172,63 +218,6 @@ namespace System.Application.UI.ViewModels
         {
             get => string.Join(',', EnableAppTypeFiltres.Select(s => s.Name_Localiza));
         }
-
-        //private IObservable<Unit> UpdateAsync()
-        //{
-        //    var types = AppTypeFiltres.Where(x => x.Enable);
-        //    bool predicateName(SteamApp s)
-        //    {
-        //        if (!string.IsNullOrEmpty(SerachText))
-        //        {
-        //            if (s.DisplayName?.Contains(SerachText, StringComparison.OrdinalIgnoreCase) == true ||
-        //                s.AppId.ToString().Contains(SerachText, StringComparison.OrdinalIgnoreCase))
-        //            {
-        //                return true;
-        //            }
-        //        }
-        //        else
-        //        {
-        //            return true;
-        //        }
-        //        return false;
-        //    }
-        //    bool predicateType(SteamApp s)
-        //    {
-        //        if (types.Any())
-        //        {
-        //            if (types.Any(x => x.Value == s.Type))
-        //            {
-        //                return true;
-        //            }
-        //        }
-        //        return false;
-        //    }
-        //    bool predicateInstalled(SteamApp s)
-        //    {
-        //        if (IsInstalledFilter)
-        //            return s.IsInstalled;
-        //        return true;
-        //    }
-
-        //    return Observable.Start(() =>
-        //    {
-        //        var list = SteamConnectService.Current.SteamApps?
-        //        .Where(x => predicateType(x))
-        //        .Where(x => predicateName(x))
-        //        .Where(x => predicateInstalled(x))
-        //        .OrderBy(x => x.DisplayName).ToList();
-        //        if (list.Any_Nullable())
-        //            this.SteamApps = list;
-        //        else
-        //            this.SteamApps = null;
-        //        this.CalcTypeCount();
-        //    });
-        //}
-
-        //public void Update()
-        //{
-        //    this.updateSource.OnNext(Unit.Default);
-        //}
 
         public void CalcTypeCount()
         {
@@ -259,6 +248,12 @@ namespace System.Application.UI.ViewModels
             });
         }
 
+        public void OpenFolder(SteamApp app)
+        {
+            if (!string.IsNullOrEmpty(app.InstalledDir))
+                IDesktopPlatformService.Instance.OpenFolder(app.InstalledDir);
+        }
+
         public void OpenAppStoreUrl(SteamApp app)
         {
             BrowserOpen(string.Format(SteamApiUrls.STEAMSTORE_APP_URL, app.AppId));
@@ -274,6 +269,69 @@ namespace System.Application.UI.ViewModels
             BrowserOpen(string.Format(SteamApiUrls.STEAMCARDEXCHANGE_APP_URL, app.AppId));
         }
 
+        public void AddAFKAppList(SteamApp app)
+        {
+            try
+            {
+                if (GameLibrarySettings.AFKAppList.Value?.Count >= SteamConnectService.Current.SteamAFKMaxCount)
+                {
+                    var result = MessageBoxCompat.ShowAsync(AppResources.GameList_AddAFKAppsMaxCountTips.Format(SteamConnectService.Current.SteamAFKMaxCount), ThisAssembly.AssemblyTrademark, MessageBoxButtonCompat.OK);
+                }
+                else
+                {
+                    if (GameLibrarySettings.AFKAppList.Value?.Count == SteamConnectService.Current.SteamAFKMaxCount - 2)
+                    {
+                        var result = MessageBoxCompat.ShowAsync(AppResources.GameList_AddAFKAppsWarningCountTips.Format(SteamConnectService.Current.SteamAFKMaxCount, SteamConnectService.Current.SteamAFKMaxCount), ThisAssembly.AssemblyTrademark, MessageBoxButtonCompat.OKCancel).ContinueWith(s =>
+                        {
+                            if (s.Result == MessageBoxResultCompat.OK)
+                            {
+                                AddAFKAppListFunc(app);
+                            }
+                        });
+                    }
+                    else
+                    {
+
+                        AddAFKAppListFunc(app);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Toast.Show(e.ToString());
+            }
+        }
+        public void AddAFKAppListFunc(SteamApp app)
+        {
+            try
+            {
+                if (GameLibrarySettings.AFKAppList.Value != null && !GameLibrarySettings.AFKAppList.Value.ContainsKey(app.AppId))
+                {
+                    GameLibrarySettings.AFKAppList.Value!.Add(app.AppId, app.DisplayName);
+                    GameLibrarySettings.AFKAppList.RaiseValueChanged();
+                }
+                Toast.Show(AppResources.GameList_AddAFKAppsSuccess);
+            }
+            catch (Exception e)
+            {
+                Toast.Show(e.ToString());
+            }
+        }
+        public void AddHideAppList(SteamApp app)
+        {
+            try
+            {
+                GameLibrarySettings.HideGameList.Value!.Add(app.AppId, app.DisplayName);
+                GameLibrarySettings.HideGameList.RaiseValueChanged();
+
+                SteamConnectService.Current.SteamApps.Remove(app);
+                Toast.Show(AppResources.GameList_HideAppsSuccess);
+            }
+            catch (Exception e)
+            {
+                Toast.Show(e.ToString());
+            }
+        }
         public void UnlockAchievement_Click(SteamApp app)
         {
             if (!ISteamService.Instance.IsRunningSteamProcess)
@@ -290,8 +348,8 @@ namespace System.Application.UI.ViewModels
                         if (s.Result == MessageBoxResultCompat.OK)
                         {
                             Toast.Show(AppResources.GameList_RuningWait);
-                            app.Process = Process.Start(AppHelper.ProgramName, "-clt app -id " + app.AppId.ToString(CultureInfo.InvariantCulture));
-                            SteamConnectService.Current.RuningSteamApps.Add(app);
+                            app.Process = Process.Start(AppHelper.ProgramPath, "-clt app -id " + app.AppId.ToString(CultureInfo.InvariantCulture));
+                            SteamConnectService.Current.RuningSteamApps.TryAdd(app.AppId, app);
                         }
                     });
 

@@ -86,8 +86,8 @@
           <!--<Button Background="Transparent"
                                 Cursor="Hand"
                                 ToolTip.Tip="添加未拥有的游戏">
-                            <PathIcon Data="{StaticResource AddDrawing}" />
-                        </Button>-->
+            <PathIcon Data="{StaticResource AddDrawing}" />
+          </Button>-->
           <Button Background="Transparent"
                   Command="{ReflectionBinding RefreshGamesList,Source={x:Static service:SteamConnectService.Current},Mode=OneWay}"
                   Cursor="Hand"
@@ -111,6 +111,12 @@
                   ToolTip.Tip="{ReflectionBinding Path=Res.GameList_ResizeAppLogo,Mode=OneWay,Source={x:Static resx:R.Current}}">
             <PathIcon Data="{StaticResource GridDrawing}" />
           </Button>
+          <Button Background="Transparent"
+             Cursor="Hand"
+             Command="{ReflectionBinding OpenIdleAppWindow}"
+             ToolTip.Tip="{ReflectionBinding Path=Res.GameList_IdleGamesManger,Mode=OneWay,Source={x:Static resx:R.Current}}">
+            <PathIcon Data="{StaticResource TopSpeedDrawing}" />
+          </Button>
           <ToggleButton x:Name="typebutton"
                         VerticalAlignment="Center"
                         Width="200" Height="35"
@@ -125,12 +131,12 @@
           </ToggleButton>
           <Popup
               IsOpen="{Binding IsOpenFilter,Mode=TwoWay, FallbackValue=False}"
-              StaysOpen="False" Width="201"
+              StaysOpen="False" Width="200"
               PlacementMode="Bottom"
               PlacementTarget="typebutton"
-              HorizontalOffset="-2"
+              HorizontalOffset="-1.5"
               IsLightDismissEnabled="True">
-            <Border Background="{DynamicResource ThemeBrushKey}"
+            <Border Background="{DynamicResource MenuFlyoutPresenterBackground}"
                     Classes="dialog"
                     Width="{Binding $parent.Width}" Height="200">
               <ScrollViewer Padding="10 5">
@@ -194,6 +200,14 @@
             </TreeView.ItemTemplate>
         </TreeView>-->
     <Panel>
+      <StackPanel IsVisible="{ReflectionBinding Source={x:Static service:SteamConnectService.Current},Path=IsLoadingGameList,Mode=OneWay}"
+                  HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+        <controls:ProgressRing IsIndeterminate="True"
+                               Width="100" Height="100">
+        </controls:ProgressRing>
+        <TextBlock Text="{ReflectionBinding Path=Res.GameList_IsLoading,Mode=OneWay,Source={x:Static resx:R.Current}}"></TextBlock>
+      </StackPanel>
+
       <TextBlock IsVisible="{Binding IsSteamAppsEmpty}"
          Text="{ReflectionBinding Path=Res.GameList_IsEmpty,Mode=OneWay,Source={x:Static resx:R.Current}}"
          TextWrapping="WrapWithOverflow"
@@ -201,12 +215,12 @@
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="0 0 0 10">
         <ItemsRepeater Items="{Binding SteamApps}">
           <ItemsRepeater.Layout>
-            <UniformGridLayout ItemsJustification="SpaceEvenly" MinRowSpacing="20"  MaximumRowsOrColumns="8" ItemsStretch="Fill" />
+            <UniformGridLayout ItemsJustification="SpaceEvenly" MinRowSpacing="10" MinColumnSpacing="20" MaximumRowsOrColumns="10" ItemsStretch="Fill" />
           </ItemsRepeater.Layout>
           <ItemsRepeater.ItemTemplate>
             <DataTemplate>
-              <StackPanel Margin="20 0" Spacing="8">
-                <Border DockPanel.Dock="Top" Classes="paper">
+              <StackPanel Spacing="8">
+                <Border DockPanel.Dock="Top" Classes="paper" Width="{ReflectionBinding Value,Source={x:Static ms:UISettings.AppGridSize},Mode=OneWay}">
                   <Border.ContextMenu>
                     <ContextMenu>
                       <MenuItem
@@ -228,7 +242,7 @@
                         </MenuItem.Icon>
                       </MenuItem>
                       <!--<MenuItem
-                                                      Header="{ReflectionBinding Path=Res.Edit,Mode=OneWay,Source={x:Static resx:R.Current}}"
+                                                      Header="{ReflectionBinding Path=Res.GameList_EditAppInfo,Mode=OneWay,Source={x:Static resx:R.Current}}"
                                                       Command="{ReflectionBinding #u.DataContext.OfflineModeButton_Click}"
                                                       CommandParameter="{Binding}" />-->
                       <MenuItem
@@ -239,29 +253,66 @@
                           <PathIcon Data="{StaticResource TrophyDrawing}" Width="16"></PathIcon>
                         </MenuItem.Icon>
                       </MenuItem>
+                      <MenuItem
+                          Header="{ReflectionBinding Path=Res.GameList_HideTheGame,Mode=OneWay,Source={x:Static resx:R.Current}}"
+                                                        Command="{ReflectionBinding #u.DataContext.AddHideAppList}"
+                                                        CommandParameter="{Binding}" >
+                        <MenuItem.Icon>
+                          <PathIcon Data="{StaticResource EyeHideDrawing}" Width="14"></PathIcon>
+                        </MenuItem.Icon>
+                      </MenuItem>
+                      <MenuItem
+                                Header="{ReflectionBinding Path=Res.GameList_AddAfkGameList,Mode=OneWay,Source={x:Static resx:R.Current}}"
+                                Command="{ReflectionBinding #u.DataContext.AddAFKAppList}"
+                                CommandParameter="{Binding}">
+                        <MenuItem.Icon>
+                          <PathIcon Data="{StaticResource TopSpeedDrawing}" Width="14"></PathIcon>
+                        </MenuItem.Icon>
+                      </MenuItem>
+
                       <!--<MenuItem
-                                                      Header="{ReflectionBinding Path=Res.GameList_HideTheGame,Mode=OneWay,Source={x:Static resx:R.Current}}"
-                                                      Command="{ReflectionBinding #u.DataContext.DeleteUserButton_Click}"
-                                                      CommandParameter="{Binding}" />
-                                            <MenuItem
-                                                      Header="{ReflectionBinding Path=Res.GameList_SetCustomImage,Mode=OneWay,Source={x:Static resx:R.Current}}"
-                                                      Command="{ReflectionBinding #u.DataContext.DeleteUserButton_Click}"
-                                                      CommandParameter="{Binding}" />-->
+                                  Header="{ReflectionBinding Path=Res.GameList_SetCustomImage,Mode=OneWay,Source={x:Static resx:R.Current}}"
+                                  Command="{ReflectionBinding #u.DataContext.DeleteUserButton_Click}"
+                                  CommandParameter="{Binding}" />-->
+                      <MenuItem
+                                Header="{ReflectionBinding Path=Res.GameList_OpenFolder,Mode=OneWay,Source={x:Static resx:R.Current}}"
+                                Command="{ReflectionBinding #u.DataContext.OpenFolder}"
+                                CommandParameter="{Binding}"
+                                IsVisible="{Binding IsInstalled}">
+                        <MenuItem.Icon>
+                          <PathIcon Data="{StaticResource FolderOpenDrawing}" Width="14"></PathIcon>
+                        </MenuItem.Icon>
+                      </MenuItem>
+
+                      <MenuItem Header="-"></MenuItem>
+
                       <MenuItem
                                 Header="{ReflectionBinding Path=Res.GameList_OpenStoreUrl,Mode=OneWay,Source={x:Static resx:R.Current}}"
                                 Command="{ReflectionBinding #u.DataContext.OpenAppStoreUrl}"
-                                CommandParameter="{Binding}" />
+                                CommandParameter="{Binding}">
+                        <MenuItem.Icon>
+                          <PathIcon Data="{StaticResource GlobeSearchDrawing}" Width="14"></PathIcon>
+                        </MenuItem.Icon>
+                      </MenuItem>
                       <MenuItem
                                 Header="{ReflectionBinding Path=Res.GameList_OpenSteamDBUrl,Mode=OneWay,Source={x:Static resx:R.Current}}"
                                 Command="{ReflectionBinding #u.DataContext.OpenSteamDBUrl}"
-                                CommandParameter="{Binding}" />
+                                CommandParameter="{Binding}">
+                        <MenuItem.Icon>
+                          <PathIcon Data="{StaticResource GlobeSearchDrawing}" Width="14"></PathIcon>
+                        </MenuItem.Icon>
+                      </MenuItem>
                       <MenuItem
                                 Header="{ReflectionBinding Path=Res.GameList_OpenSteamCardUrl,Mode=OneWay,Source={x:Static resx:R.Current}}"
                                 Command="{ReflectionBinding #u.DataContext.OpenSteamCardUrl}"
-                                CommandParameter="{Binding}" />
+                                CommandParameter="{Binding}">
+                        <MenuItem.Icon>
+                          <PathIcon Data="{StaticResource GlobeSearchDrawing}" Width="14"></PathIcon>
+                        </MenuItem.Icon>
+                      </MenuItem>
                     </ContextMenu>
                   </Border.ContextMenu>
-                  <Panel x:Name="app" Width="{ReflectionBinding Value,Source={x:Static ms:UISettings.AppGridSize},Mode=OneWay}">
+                  <Panel x:Name="app" Width="{ReflectionBinding $parent.Width}">
                     <!--<i:Interaction.Behaviors>
                                             <ia:EventTriggerBehavior EventName="Tapped" SourceObject="{ReflectionBinding #app}">
                                                 <ia:InvokeCommandAction Command="{ReflectionBinding #u.DataContext.AppClick}" CommandParameter="{Binding}"/>
@@ -271,22 +322,16 @@
                                         Stretch="UniformToFill"
                                         DecodeWidth="{ReflectionBinding $parent.Width}"
                                         Source="{Binding LibraryLogoStream^}">
-                      <!--<i:Interaction.Behaviors>
-                                                <ia:DataTriggerBehavior Binding="{Binding LibraryLogoStream,Converter={StaticResource IsNullConverter},ConverterParameter=invert}" ComparisonCondition="Equal" Value="True">
-                                                    <ia:ChangePropertyAction TargetObject="{ReflectionBinding #library}" PropertyName="Source" Value="{Binding LibraryLogoStream}"/>
-                                                </ia:DataTriggerBehavior>
-                                                <ia:DataTriggerBehavior Binding="{Binding LibraryLogoStream,Converter={StaticResource IsNullConverter},ConverterParameter=invert}" ComparisonCondition="Equal" Value="False">
-                                                    <ia:ChangePropertyAction TargetObject="{ReflectionBinding #library}" PropertyName="Source" Value="avares://System.Application.SteamTools.Client.Desktop.Avalonia/Application/UI/Assets/AppResources/Placeholders/16.png"/>
-                                                </ia:DataTriggerBehavior>
-                                            </i:Interaction.Behaviors>-->
                     </gif:Image2>
                     <Image Source="avares://System.Application.SteamTools.Client.Desktop.Avalonia/Application/UI/Assets/AppResources/Placeholders/0.png" Stretch="UniformToFill" IsVisible="{Binding LibraryLogoStream^,Converter={StaticResource IsNullConverter}}">
                     </Image>
                     <TextBlock
+                        Margin="5 0"
                         Text="{Binding DisplayName}"
                         VerticalAlignment="Center"
                         HorizontalAlignment="Center"
                         TextWrapping="WrapWithOverflow"
+                        TextAlignment="Center"
                         FontSize="20"
                         Foreground="{DynamicResource HighlightForegroundBrushKey}"
                         IsVisible="{Binding LibraryLogoStream^,Converter={StaticResource IsNullConverter}}"/>

@@ -1,4 +1,5 @@
 using System.Application.Properties;
+using System.ComponentModel;
 using System.Diagnostics;
 using Xamarin.Essentials;
 
@@ -67,22 +68,41 @@ namespace System.Application.Services.CloudService
         }
 
         /// <summary>
+        /// 判断字符串是否为 Http Url
+        /// </summary>
+        /// <param name="url"></param>
+        /// <param name="httpsOnly">是否仅Https</param>
+        /// <returns></returns>
+        public static bool IsHttpUrl(string? url, bool httpsOnly = false) => url != null &&
+            (url.StartsWith(Prefix_HTTPS, StringComparison.OrdinalIgnoreCase) ||
+                  (!httpsOnly && url.StartsWith(Prefix_HTTP, StringComparison.OrdinalIgnoreCase)));
+
+        /// <summary>
         /// 兼容 Linux/Mac/.NetCore/Android/iOS 的打开链接方法
         /// </summary>
         /// <param name="url"></param>
         public static async void BrowserOpen(string? url)
         {
-            if (url == null) return;
-            if (url.StartsWith(Prefix_HTTPS, StringComparison.OrdinalIgnoreCase) ||
-                url.StartsWith(Prefix_HTTP, StringComparison.OrdinalIgnoreCase))
+            if (IsHttpUrl(url))
             {
                 if (DI.DeviceIdiom == DeviceIdiom.Desktop && DI.Platform != Platform.UWP)
                 {
-                    Process.Start(new ProcessStartInfo
+                    try
                     {
-                        FileName = url,
-                        UseShellExecute = true,
-                    });
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = url,
+                            UseShellExecute = true,
+                        });
+                    }
+                    catch (Win32Exception e)
+                    {
+#if MVVM_VM
+                        // [Win32Exception: 找不到应用程序] 39次报告
+                        // 疑似缺失没有默认浏览器设置会导致此异常，可能与杀毒软件有关
+                        Toast.Show(e.GetAllMessage());
+#endif
+                    }
                 }
                 else
                 {

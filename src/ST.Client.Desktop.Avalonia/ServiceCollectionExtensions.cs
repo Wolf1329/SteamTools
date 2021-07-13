@@ -1,5 +1,4 @@
-﻿using Avalonia.Controls;
-using System;
+using Avalonia.Controls;
 using System.Application.Services;
 using System.Application.Services.Implementation;
 using System.Application.UI;
@@ -7,7 +6,7 @@ using System.Application.UI;
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection
 {
-    public static class ServiceCollectionExtensions
+    public static partial class ServiceCollectionExtensions
     {
         /// <summary>
         /// 添加主线程助手类(MainThreadDesktop)服务
@@ -17,17 +16,6 @@ namespace Microsoft.Extensions.DependencyInjection
         public static IServiceCollection AddMainThreadPlatformService(this IServiceCollection services)
         {
             services.AddSingleton<IMainThreadPlatformService, MainThreadPlatformServiceImpl>();
-            return services;
-        }
-
-        /// <summary>
-        /// 添加显示窗口服务
-        /// </summary>
-        /// <param name="services"></param>
-        /// <returns></returns>
-        public static IServiceCollection AddShowWindowService(this IServiceCollection services)
-        {
-            services.AddSingleton<IShowWindowService, ShowWindowServiceImpl>();
             return services;
         }
 
@@ -65,6 +53,12 @@ namespace Microsoft.Extensions.DependencyInjection
         public static IServiceCollection AddNotificationService(this IServiceCollection services)
         {
             services.AddSingleton<INotificationService, PlatformNotificationServiceImpl>();
+            return services;
+        }
+
+        public static IServiceCollection AddFontManager(this IServiceCollection services, bool useGdiPlusFirst)
+        {
+            services.AddSingleton<IFontManager>(new AvaloniaFontManagerImpl(useGdiPlusFirst));
             return services;
         }
     }

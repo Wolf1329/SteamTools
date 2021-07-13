@@ -1,19 +1,18 @@
-using ReactiveUI;
 using DynamicData;
+using DynamicData.Binding;
+using ReactiveUI;
 using System.Application.Models;
 using System.Application.Models.Settings;
 using System.Application.Services;
 using System.Application.UI.Resx;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Properties;
 using System.Reactive;
 using System.Reactive.Linq;
-using System.Threading.Tasks;
 using System.Windows;
-using DynamicData.Binding;
 using static System.Application.Services.CloudService.Constants;
 
 namespace System.Application.UI.ViewModels
@@ -39,6 +38,7 @@ namespace System.Application.UI.ViewModels
             LoginAccountCommand = ReactiveCommand.Create(LoginNewSteamAccount);
             RefreshCommand = ReactiveCommand.Create(Initialize);
 
+            ShareManageCommand = ReactiveCommand.Create(OpenShareManageWindow);
             MenuItems = new ObservableCollection<MenuItemViewModel>()
             {
                 //new MenuItemViewModel(nameof(AppResources.More))
@@ -48,6 +48,8 @@ namespace System.Application.UI.ViewModels
                         new MenuItemViewModel(nameof(AppResources.UserChange_LoginNewAccount))
                             { IconKey="SteamDrawing", Command=LoginAccountCommand },
                         new MenuItemViewModel (),
+                          new MenuItemViewModel(nameof(AppResources.AccountChange_Title)){
+                      IconKey ="ChannelShareDrawing", Command = ShareManageCommand },
                         new MenuItemViewModel (nameof(AppResources.Refresh))
                             { IconKey="RefreshDrawing" , Command = RefreshCommand},
                 //    }
@@ -67,6 +69,11 @@ namespace System.Application.UI.ViewModels
 
         public ReactiveCommand<Unit, Unit> LoginAccountCommand { get; }
         public ReactiveCommand<Unit, Unit> RefreshCommand { get; }
+        public ReactiveCommand<Unit, Unit> ShareManageCommand { get; }
+        public void OpenShareManageWindow()
+        {
+            IShowWindowService.Instance.Show(CustomWindow.ShareManage, new ShareManageViewModel(), string.Empty, ResizeModeCompat.CanResize);
+        }
 
         /// <summary>
         /// steam记住的用户列表
@@ -77,7 +84,7 @@ namespace System.Application.UI.ViewModels
 
         public bool IsUserEmpty => !SteamUsers.Any_Nullable();
 
-        internal async override void Initialize()
+        public async override void Initialize()
         {
             var list = steamService.GetRememberUserList();
 
@@ -88,11 +95,12 @@ namespace System.Application.UI.ViewModels
             }
 
             _SteamUsersSourceList.AddOrUpdate(list);
+            var accountRemarks = Serializable.Clone<IReadOnlyDictionary<long, string?>?>(SteamAccountSettings.AccountRemarks.Value);
 
             foreach (var user in _SteamUsersSourceList.Items)
             {
                 string? remark = null;
-                SteamAccountSettings.AccountRemarks.Value?.TryGetValue(user.SteamId64, out remark);
+                accountRemarks?.TryGetValue(user.SteamId64, out remark);
                 var temp = await webApiService.GetUserInfo(user.SteamId64);
                 user.Remark = remark;
                 user.SteamID = temp.SteamID;
@@ -105,6 +113,17 @@ namespace System.Application.UI.ViewModels
                 user.AvatarMedium = temp.AvatarMedium;
                 user.AvatarFull = temp.AvatarFull;
                 user.AvatarStream = httpService.GetImageAsync(temp.AvatarFull, ImageChannelType.SteamAvatars);
+
+                if (DI.Platform == Platform.Windows)
+                {
+                    var title = user.SteamNickName ?? user.SteamId64.ToString(CultureInfo.InvariantCulture);
+                    if (!string.IsNullOrEmpty(user.Remark))
+                    {
+                        title = user.SteamNickName + "(" + user.Remark + ")";
+                    }
+
+                    DI.Get<ISystemJumpListService>().AddJumpTask(title, AppHelper.ProgramPath, AppHelper.ProgramPath, "-clt steam -account " + user.AccountName, AppResources.UserChange_BtnTootlip, this.Name);
+                }
             }
 
             _SteamUsersSourceList.Refresh();
@@ -124,14 +143,14 @@ namespace System.Application.UI.ViewModels
             _SteamUsersSourceList.Refresh();
 
             this.WhenAnyValue(x => x.SteamUsers)
-                .Subscribe(items => items?
-                        .ToObservableChangeSet()
-                        .AutoRefresh(x => x.Remark)
-                        .WhenValueChanged(x => x.Remark, false)
-                        .Subscribe(_ =>
-                        {
-                            SteamAccountSettings.AccountRemarks.Value = items?.Where(x => !string.IsNullOrEmpty(x.Remark)).ToDictionary(k => k.SteamId64, v => v.Remark);
-                        }));
+                  .Subscribe(items => items?
+                  .ToObservableChangeSet()
+                  .AutoRefresh(x => x.Remark)
+                  .WhenValueChanged(x => x.Remark, false)
+                  .Subscribe(_ =>
+                  {
+                      SteamAccountSettings.AccountRemarks.Value = items?.Where(x => !string.IsNullOrEmpty(x.Remark)).ToDictionary(k => k.SteamId64, v => v.Remark);
+                  }));
         }
 
         public void SteamId_Click(SteamUser user)
@@ -140,9 +159,7 @@ namespace System.Application.UI.ViewModels
             {
                 UserModeChange(user, false);
             }
-            steamService.SetCurrentUser(user.AccountName ?? string.Empty);
-            steamService.TryKillSteamProcess();
-            steamService.StartSteam(SteamSettings.SteamStratParameter.Value);
+            ReStartSteamByUser(user);
         }
 
         public void OfflineModeButton_Click(SteamUser user)
@@ -151,7 +168,14 @@ namespace System.Application.UI.ViewModels
             {
                 UserModeChange(user, true);
             }
-            SteamId_Click(user);
+            ReStartSteamByUser(user);
+        }
+
+        private void ReStartSteamByUser(SteamUser user)
+        {
+            steamService.SetCurrentUser(user.AccountName ?? string.Empty);
+            steamService.TryKillSteamProcess();
+            steamService.StartSteam(SteamSettings.SteamStratParameter.Value);
         }
 
         private void UserModeChange(SteamUser user, bool OfflineMode)
@@ -161,16 +185,22 @@ namespace System.Application.UI.ViewModels
             user.OriginVdfString = user.CurrentVdfString;
         }
 
-        public void DeleteUserButton_Click(SteamUser user)
+        public async void DeleteUserButton_Click(SteamUser user)
         {
-            var result = MessageBoxCompat.ShowAsync(@AppResources.UserChange_DeleteUserTip, ThisAssembly.AssemblyTrademark, MessageBoxButtonCompat.OKCancel).ContinueWith(s =>
+            var result = await MessageBoxCompat.ShowAsync(@AppResources.UserChange_DeleteUserTip, ThisAssembly.AssemblyTrademark, MessageBoxButtonCompat.OKCancel);
+            if (result == MessageBoxResultCompat.OK)
             {
-                if (s.Result == MessageBoxResultCompat.OK)
+                result = await MessageBoxCompat.ShowAsync(@AppResources.UserChange_DeleteUserDataTip, ThisAssembly.AssemblyTrademark, MessageBoxButtonCompat.OKCancel);
+                if (result == MessageBoxResultCompat.OK)
                 {
-                    steamService.DeleteLocalUserData(user);
-                    _SteamUsersSourceList.Remove(user);
+                    steamService.DeleteLocalUserData(user, true);
                 }
-            });
+                else
+                {
+                    steamService.DeleteLocalUserData(user, false);
+                }
+                _SteamUsersSourceList.Remove(user);
+            }
         }
 
         public void OpenUserProfileUrl(SteamUser user)

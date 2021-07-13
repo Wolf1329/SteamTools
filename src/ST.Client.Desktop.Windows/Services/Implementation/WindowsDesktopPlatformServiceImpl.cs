@@ -1,4 +1,4 @@
-﻿#pragma warning disable CA1416 // 验证平台兼容性
+#pragma warning disable CA1416 // 验证平台兼容性
 using Microsoft.Win32;
 using Microsoft.Win32.TaskScheduler;
 using System.Application.Models;
@@ -10,6 +10,9 @@ using System.Linq;
 using System.Management;
 using System.Reflection;
 using System.Runtime.Versioning;
+using System.Security.Cryptography;
+using System.Security.Principal;
+using System.Threading;
 
 namespace System.Application.Services.Implementation
 {
@@ -64,6 +67,19 @@ namespace System.Application.Services.Implementation
             }
         }
 
+        /// <summary>
+        /// 使用资源管理器打开某个路径
+        /// </summary>
+        /// <param name="dirPath"></param>
+        public void OpenFolder(string dirPath)
+        {
+            if (File.Exists(dirPath))
+            {
+                Process.Start("explorer.exe", "/select," + dirPath);
+            }
+            Process.Start("explorer.exe", dirPath);
+        }
+
         public string? GetFileName(TextReaderProvider provider)
         {
             switch (provider)
@@ -95,6 +111,11 @@ namespace System.Application.Services.Implementation
             // 开机启动使用 taskschd.msc 实现
             try
             {
+                var identity = WindowsIdentity.GetCurrent();
+                var hasSid = identity.User?.IsAccountSid() ?? false;
+                var userId = hasSid ? identity.User!.ToString() : identity.Name;
+                var tdName = hasSid ? userId : userId.Replace(Path.DirectorySeparatorChar, '_');
+                tdName = $"{name}_{{{tdName}}}";
                 if (isAutoStart)
                 {
                     using var td = TaskService.Instance.NewTask();
@@ -104,15 +125,16 @@ namespace System.Application.Services.Implementation
                     td.Settings.AllowHardTerminate = false;
                     td.Settings.StopIfGoingOnBatteries = false;
                     td.Settings.DisallowStartIfOnBatteries = false;
-                    td.Triggers.Add(new LogonTrigger());
-                    td.Actions.Add(new ExecAction(AppHelper.ProgramName, "-clt c -silence", Path.GetDirectoryName(Assembly.GetCallingAssembly().Location)));
+                    td.Triggers.Add(new LogonTrigger { UserId = userId });
+                    td.Actions.Add(new ExecAction(AppHelper.ProgramName, "-clt c -silence", IOPath.BaseDirectory));
                     if (IsAdministrator)
                         td.Principal.RunLevel = TaskRunLevel.Highest;
-                    TaskService.Instance.RootFolder.RegisterTaskDefinition(name, td);
+                    TaskService.Instance.RootFolder.RegisterTaskDefinition(tdName, td);
                 }
                 else
                 {
-                    TaskService.Instance.RootFolder.DeleteTask(name);
+                    TaskService.Instance.RootFolder.DeleteTask(name, exceptionOnNotExists: false);
+                    TaskService.Instance.RootFolder.DeleteTask(tdName, exceptionOnNotExists: false);
                 }
             }
             catch (Exception e)
@@ -120,6 +142,15 @@ namespace System.Application.Services.Implementation
                 Log.Error(TAG, e,
                     "SetBootAutoStart Fail, isAutoStart: {0}, name: {1}.", isAutoStart, name);
             }
+        }
+
+        public void SetSystemSessionEnding(Action action)
+        {
+            SystemEvents.SessionEnding += (sender, e) =>
+            {
+                //IDesktopAppService.Instance.CompositeDisposable.Dispose();
+                action.Invoke();
+            };
         }
 
         static string? GetFullPath(string s)
@@ -151,6 +182,58 @@ namespace System.Application.Services.Implementation
         static readonly Lazy<(byte[] key, byte[] iv)> mMachineSecretKey = IDesktopPlatformService.GetMachineSecretKey(GetMachineSecretKey);
 
         public (byte[] key, byte[] iv) MachineSecretKey => mMachineSecretKey.Value;
+
+        public Process StartAsInvoker(string fileName)
+        {
+            return Process.Start($"/trustlevel:0x20000 \"{fileName}\"");
+        }
+
+        public Process? StartAsInvoker(ProcessStartInfo startInfo)
+        {
+            startInfo.FileName = $"/trustlevel:0x20000 \"{startInfo.FileName}\"";
+            return Process.Start(startInfo);
+        }
+
+        public Process? GetProcessByPortOccupy(ushort port, bool isTCPorUDP = true)
+        {
+            try
+            {
+                using var p = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "cmd",
+                        UseShellExecute = false,
+                        RedirectStandardInput = true,
+                        RedirectStandardOutput = true,
+                        CreateNoWindow = true,
+                    },
+                };
+                p.Start();
+                p.StandardInput.WriteLine($"netstat -ano|findstr \"{port}\"&exit");
+                p.StandardInput.AutoFlush = true;
+                var reader = p.StandardOutput;
+                while (!reader.EndOfStream)
+                {
+                    var line = reader.ReadLine();
+                    if (line == null) break;
+                    var lineArray = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (lineArray.Length != 5) continue;
+                    if (!lineArray[0].Equals(isTCPorUDP ? "TCP" : "UDP", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!lineArray[3].Equals("LISTENING", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!lineArray[1].EndsWith($":{port}")) continue;
+                    if (!ushort.TryParse(lineArray[4], out var pid)) continue;
+                    p.Close();
+                    return Process.GetProcessById(pid);
+                }
+                _ = p.WaitForExit(550);
+            }
+            catch
+            {
+
+            }
+            return default;
+        }
     }
 }
 #pragma warning restore CA1416 // 验证平台兼容性

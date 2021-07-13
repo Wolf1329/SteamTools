@@ -1,13 +1,9 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using NLog;
 using NLog.Extensions.Logging;
-using System.Application.Models;
-using System.Application.Security;
 using System.Application.Services;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Properties;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 using NInternalLogger = NLog.Common.InternalLogger;
@@ -20,23 +16,38 @@ namespace System.Application.UI
     {
         public static bool EnableDevtools { get; set; } = ThisAssembly.Debuggable;
 
+        public static bool IsSystemWebViewAvailable { get; set; }
+
         public static Action? Initialized { get; set; }
 
         public static Action? Shutdown { get; set; }
+
+        static bool isShutdown = false;
+        public static void TryShutdown()
+        {
+            if (isShutdown) return;
+            isShutdown = true;
+            Shutdown?.Invoke();
+        }
 
         static AppHelper()
         {
             var mainModule = Process.GetCurrentProcess().MainModule;
             if (mainModule == null)
                 throw new ArgumentNullException(nameof(mainModule));
-            var fullName = mainModule.FileName;
-            if (fullName == null)
-                throw new ArgumentNullException(nameof(fullName));
-            var programName = Path.GetFileName(fullName);
+            ProgramPath = mainModule.FileName!;
+            if (ProgramPath == null)
+                throw new ArgumentNullException(nameof(ProgramPath));
+            var programName = Path.GetFileName(ProgramPath);
             if (programName == null)
                 throw new ArgumentNullException(nameof(programName));
             ProgramName = programName;
         }
+
+        /// <summary>
+        /// 当前主程序所在绝对路径
+        /// </summary>
+        public static string ProgramPath { get; }
 
         /// <summary>
         /// 获取当前主程序文件名，例如word.exe
@@ -54,7 +65,7 @@ namespace System.Application.UI
 
         const LogLevel DefaultLoggerMinLevel = ThisAssembly.Debuggable ? LogLevel.Debug : LogLevel.Error;
 
-        public static NLogLevel DefaultNLoggerMinLevel = ConvertLogLevel(DefaultLoggerMinLevel);
+        public static readonly NLogLevel DefaultNLoggerMinLevel = ConvertLogLevel(DefaultLoggerMinLevel);
 
         /// <summary>
         /// Convert log level to NLog variant.
@@ -86,7 +97,8 @@ namespace System.Application.UI
         {
             try
             {
-                LoggerFilterOptions.MinLevel = logLevel;
+                var o = LoggerFilterOptions;
+                if (o != null) o.MinLevel = logLevel;
             }
             catch
             {
@@ -94,10 +106,22 @@ namespace System.Application.UI
             SetNLoggerMinLevel(ConvertLogLevel(logLevel));
         }
 
+        static LoggerFilterOptions? _LoggerFilterOptions;
         /// <summary>
         /// 日志过滤选项
         /// </summary>
-        static LoggerFilterOptions LoggerFilterOptions => DI.Get<IOptions<LoggerFilterOptions>>().Value;
+        static LoggerFilterOptions? LoggerFilterOptions
+        {
+            get
+            {
+                if (_LoggerFilterOptions != null) return _LoggerFilterOptions;
+                return DI.Get_Nullable<IOptions<LoggerFilterOptions>>()?.Value;
+            }
+            set
+            {
+                _LoggerFilterOptions = value;
+            }
+        }
 
         internal static (LogLevel minLevel, Action<ILoggingBuilder> cfg) Configure()
         {
@@ -123,10 +147,23 @@ namespace System.Application.UI
         /// </summary>
         public static LogLevel LoggerMinLevel
         {
-            get => LoggerFilterOptions.MinLevel;
+            get
+            {
+                var o = LoggerFilterOptions;
+                if (o == null)
+                {
+                    o = new();
+                    LoggerFilterOptions = o;
+                }
+                return o.MinLevel;
+            }
             set
             {
-                LoggerFilterOptions.MinLevel = value;
+                var o = LoggerFilterOptions;
+                if (o != null)
+                {
+                    o.MinLevel = value;
+                }
                 SetNLoggerMinLevel(value);
             }
         }

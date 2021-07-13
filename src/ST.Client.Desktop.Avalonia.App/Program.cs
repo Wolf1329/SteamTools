@@ -1,18 +1,17 @@
 using NLog;
-using NLog.Config;
 using ReactiveUI;
 using System.Application.Services;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Reactive;
+using System.Runtime.ExceptionServices;
+using AvaloniaApplication = Avalonia.Application;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace System.Application.UI
 {
     static partial class Program
     {
-        static Logger? logger;
         static readonly HashSet<Exception> exceptions = new();
         static readonly object lock_global_ex_log = new();
 
@@ -20,14 +19,32 @@ namespace System.Application.UI
         // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
         // yet and stuff might break.
         [STAThread]
+        [HandleProcessCorruptedStateExceptions]
         static int Main(string[] args)
         {
+#if WINDOWS_DESKTOP_BRIDGE
+            if (!DesktopBridgeHelper.Init()) return 0;
+#elif !__MOBILE__
+#if MAC
+            AppDelegateHelper.Init(args);
+            //FileSystemDesktopMac.InitFileSystem();
+            FileSystemDesktop.InitFileSystem();
+#else
+            FileSystemDesktop.InitFileSystem();
+#endif
+#endif
+#if StartupTrace
+            StartupTrace.Restart();
+#endif
             // 目前桌面端默认使用 SystemTextJson 如果出现兼容性问题可取消下面这行代码
             // Serializable.DefaultJsonImplType = Serializable.JsonImplType.NewtonsoftJson;
             IsMainProcess = args.Length == 0;
             IsCLTProcess = !IsMainProcess && args.FirstOrDefault() == "-clt";
 
             var logDirPath = InitLogDir();
+#if StartupTrace
+            StartupTrace.Restart("InitLogDir");
+#endif
 
             void InitCefNetApp() => CefNetApp.Init(logDirPath, args);
             void InitAvaloniaApp() => BuildAvaloniaAppAndStartWithClassicDesktopLifetime(args);
@@ -47,28 +64,17 @@ namespace System.Application.UI
             });
             try
             {
+                string[] args_clt;
                 if (IsCLTProcess) // 命令行模式
                 {
-                    var args_clt = args.Skip(1).ToArray();
-                    return CommandLineTools.Main(args_clt, InitStartup, InitAvaloniaApp, InitCefNetApp);
+                    args_clt = args.Skip(1).ToArray();
+                    if (args_clt.Length == 1 && args_clt[0].Equals(command_main, StringComparison.OrdinalIgnoreCase)) return default;
                 }
                 else
                 {
-                    Startup.Init(DILevel.MainProcess);
-
-                    if (IsMainProcess)
-                    {
-                        var appInstance = new ApplicationInstance();
-                        if (!appInstance.IsFirst) goto exit;
-                    }
-
-                    InitCefNetApp();
-
-                    if (IsMainProcess)
-                    {
-                        InitAvaloniaApp();
-                    }
+                    args_clt = new[] { command_main };
                 }
+                return CommandLineTools.Run(args_clt, InitStartup, InitAvaloniaApp, InitCefNetApp);
             }
             catch (Exception ex)
             {
@@ -77,11 +83,11 @@ namespace System.Application.UI
             }
             finally
             {
+                appInstance?.Dispose();
                 // Ensure to flush and stop internal timers/threads before application-exit (Avoid segmentation fault on Linux)
                 LogManager.Shutdown();
+                ArchiSteamFarm.LogManager.Shutdown();
             }
-
-        exit: return 0;
 
             static void HandleGlobalException(Exception ex, string name, bool? isTerminating = null)
             {
@@ -97,32 +103,47 @@ namespace System.Application.UI
 
                 try
                 {
-                    IHostsFileService.OnExitRestoreHosts();
+                    DI.Get<IHttpProxyService>().StopProxy();
+                    ProxyService.OnExitRestoreHosts();
                 }
                 catch (Exception ex_restore_hosts)
                 {
                     logger?.Error(ex_restore_hosts, "(App)Close exception when OnExitRestoreHosts");
                 }
 
+                var callTryShutdown = true;
                 try
                 {
-                    if (!App.Shutdown())
-                    {
-                        try
-                        {
-                            AppHelper.Shutdown?.Invoke();
-                        }
-                        catch (Exception ex_shutdown_app_helper)
-                        {
-                            logger?.Error(ex_shutdown_app_helper,
-                                "(AppHelper)Close exception when exception occurs");
-                        }
-                    }
+                    callTryShutdown = !App.Shutdown();
                 }
                 catch (Exception ex_shutdown)
                 {
                     logger?.Error(ex_shutdown,
                         "(App)Close exception when exception occurs");
+                }
+
+                if (callTryShutdown)
+                {
+                    try
+                    {
+                        AppHelper.TryShutdown();
+                    }
+                    catch (Exception ex_shutdown_app_helper)
+                    {
+                        logger?.Error(ex_shutdown_app_helper,
+                            "(AppHelper)Close exception when exception occurs");
+                    }
+                }
+
+                try
+                {
+                    if (AvaloniaApplication.Current is App app)
+                    {
+                        app.compositeDisposable.Dispose();
+                    }
+                }
+                catch
+                {
                 }
 
 #if DEBUG
@@ -140,41 +161,6 @@ namespace System.Application.UI
                 }
 #endif
             }
-        }
-
-        static string InitLogDir()
-        {
-            var logDirPath = Path.Combine(AppContext.BaseDirectory, "Logs");
-            IOPath.DirCreateByNotExists(logDirPath);
-
-            var logDirPath_ = logDirPath + Path.DirectorySeparatorChar;
-
-            var xmlConfigStr =
-                "<?xml version=\"1.0\" encoding=\"utf-8\" ?>" +
-                "<nlog xmlns=\"http://www.nlog-project.org/schemas/NLog.xsd\"" +
-                "      xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"" +
-                "      autoReload=\"true\"" +
-                "      internalLogFile=\"" + logDirPath_ + "internal-nlog.txt\"" +
-                "      internalLogLevel=\"Off\">" +
-                "  <targets>" +
-                "    <target xsi:type=\"File\" name=\"logfile\" fileName=\"" + logDirPath_ + "nlog-all-${shortdate}.log\"" +
-                "            layout=\"${longdate}|${level}|${logger}|${message} |${all-event-properties} ${exception:format=tostring}\" />" +
-                "    <target xsi:type=\"Console\" name=\"logconsole\"" +
-                "            layout=\"${longdate}|${level}|${logger}|${message} |${all-event-properties} ${exception:format=tostring}\" />" +
-                "  </targets>" +
-                "  <rules>" +
-                // Skip non-critical Microsoft logs and so log only own logs
-                "    <logger name=\"Microsoft.*\" maxlevel=\"Info\" final=\"true\"/>" +
-                "    <logger name=\"System.Net.Http.*\" maxlevel=\"Info\" final=\"true\" />" +
-                "    <logger name=\"*\" minlevel=\"" + AppHelper.DefaultNLoggerMinLevel.Name + "\" writeTo=\"logfile,logconsole\"/>" +
-                "  </rules>" +
-                "</nlog>"
-            ;
-
-            var xmlConfig = XmlLoggingConfiguration.CreateFromXmlString(xmlConfigStr);
-            LogManager.Configuration = xmlConfig;
-
-            return logDirPath;
         }
 
         /// <summary>

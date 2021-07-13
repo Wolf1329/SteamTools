@@ -1,4 +1,5 @@
 using System.Application.Models;
+using System.Threading.Tasks;
 using System.Windows.Input;
 
 namespace System.Application.Services
@@ -8,9 +9,9 @@ namespace System.Application.Services
     /// </summary>
     public interface IAppUpdateService
     {
-        public static IAppUpdateService Instance => DI.Get<IAppUpdateService>();
+        static IAppUpdateService Instance => DI.Get<IAppUpdateService>();
 
-        public const float MaxProgressValue = 100f;
+        const float MaxProgressValue = 100f;
 
         /// <summary>
         /// 进度值
@@ -42,12 +43,18 @@ namespace System.Application.Services
 
         string NewVersionInfoTitle { get; }
 
+        /// <inheritdoc cref="CheckUpdateAsync(bool, bool)"/>
+        async void CheckUpdate(bool force = false, bool showIsExistUpdateFalse = true)
+        {
+            await CheckUpdateAsync(force, showIsExistUpdateFalse);
+        }
+
         /// <summary>
         /// 检查更新，返回新版本信息
         /// </summary>
         /// <param name="force">是否强制检查，如果为 <see langword="false"/> 当有新版本内存中缓存时将跳过 api 请求</param>
         /// <param name="showIsExistUpdateFalse">是否显示已是最新版本吐司提示</param>
-        void CheckUpdate(bool force = false, bool showIsExistUpdateFalse = true);
+        Task CheckUpdateAsync(bool force = false, bool showIsExistUpdateFalse = true);
 
         ICommand StartUpdateCommand { get; }
     }

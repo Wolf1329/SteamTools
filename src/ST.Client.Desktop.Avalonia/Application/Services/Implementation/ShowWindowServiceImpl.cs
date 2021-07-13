@@ -1,8 +1,11 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using ReactiveUI;
 using System.Application.UI.ViewModels;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using AvaloniaApplication = Avalonia.Application;
 
 namespace System.Application.Services.Implementation
 {
@@ -25,16 +28,45 @@ namespace System.Application.Services.Implementation
         //    _ => throw new ArgumentOutOfRangeException(nameof(customWindow), customWindow, null),
         //};
 
+        static bool IsSingletonWindow(CustomWindow customWindow) => customWindow switch
+        {
+            CustomWindow.TaskBar or
+            CustomWindow.LoginOrRegister or
+            CustomWindow.ChangeBindPhoneNumber or
+            CustomWindow.UserProfile => true,
+            _ => false,
+        };
+
+        static bool TryShowSingletonWindow(Type windowType)
+        {
+            if (AvaloniaApplication.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                var window = desktop.Windows.FirstOrDefault(x => x.GetType() == windowType);
+                if (window != null)
+                {
+                    window.Show();
+                    window.Activate();
+                    return true;
+                }
+            }
+            return false;
+        }
+
         Task Show(Type typeWindowViewModel,
             bool isDialog,
             CustomWindow customWindow,
             string title,
             WindowViewModel? viewModel,
             ResizeModeCompat resizeMode,
+            bool isParent = true,
             Action<DialogWindowViewModel>? actionDialogWindowViewModel = null)
-            => MainThreadDesktop.InvokeOnMainThreadAsync(async () =>
+            => MainThread2.InvokeOnMainThreadAsync(async () =>
             {
                 var windowType = GetWindowType(customWindow);
+                if (IsSingletonWindow(customWindow) && TryShowSingletonWindow(windowType))
+                {
+                    return;
+                }
                 var window = (Window)Activator.CreateInstance(windowType);
                 if (viewModel == null && typeWindowViewModel != typeof(object))
                 {
@@ -97,7 +129,10 @@ namespace System.Application.Services.Implementation
                 }
                 else
                 {
-                    IDesktopAvaloniaAppService.Instance.ShowWindow(window);
+                    if (isParent)
+                        IDesktopAvaloniaAppService.Instance.ShowWindow(window);
+                    else
+                        IDesktopAvaloniaAppService.Instance.ShowWindowNoParent(window);
                 }
             });
 
@@ -106,17 +141,19 @@ namespace System.Application.Services.Implementation
             TWindowViewModel? viewModel = null,
             string title = "",
             ResizeModeCompat resizeMode = ResizeModeCompat.NoResize,
-            bool isDialog = false)
+            bool isDialog = false,
+            bool isParent = true)
             where TWindowViewModel : WindowViewModel, new() => Show(typeof(TWindowViewModel),
-                customWindow, viewModel, title, resizeMode, isDialog);
+                customWindow, viewModel, title, resizeMode, isDialog, isParent);
 
         public Task Show(Type typeWindowViewModel,
             CustomWindow customWindow,
             WindowViewModel? viewModel = null,
             string title = "",
             ResizeModeCompat resizeMode = ResizeModeCompat.NoResize,
-            bool isDialog = false) => Show(typeWindowViewModel, isDialog, customWindow,
-                title, viewModel, resizeMode);
+            bool isDialog = false,
+            bool isParent = true) => Show(typeWindowViewModel, isDialog, customWindow,
+                title, viewModel, resizeMode, isParent);
 
         public async Task<bool> ShowDialog<TWindowViewModel>(
             CustomWindow customWindow,
@@ -128,7 +165,7 @@ namespace System.Application.Services.Implementation
         {
             DialogWindowViewModel? dialogWindowViewModel = null;
             await Show(typeof(TWindowViewModel), isDialog, customWindow,
-                title, viewModel, resizeMode, dwvm =>
+                title, viewModel, resizeMode, true, dwvm =>
             {
                 dialogWindowViewModel = dwvm;
             });
@@ -142,5 +179,21 @@ namespace System.Application.Services.Implementation
                 ResizeModeCompat resizeMode = ResizeModeCompat.NoResize,
                 bool isDialog = true) => Show(typeWindowViewModel, isDialog, customWindow,
             title, viewModel, resizeMode);
+
+
+        public void CloseWindow(WindowViewModel vm)
+        {
+            IDesktopAvaloniaAppService.Instance.CloseWindow(vm);
+        }
+
+        public void HideWindow(WindowViewModel vm)
+        {
+            IDesktopAvaloniaAppService.Instance.HideWindow(vm);
+        }
+
+        public void ShowWindow(WindowViewModel vm)
+        {
+            IDesktopAvaloniaAppService.Instance.ShowWindowNoParent(vm);
+        }
     }
 }

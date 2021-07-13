@@ -3,11 +3,13 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform;
+using Avalonia.ReactiveUI;
+using System.Application.UI.ViewModels;
 using System.Runtime.InteropServices;
 
 namespace System.Application.UI.Views
 {
-    public class MainView : UserControl
+    public class MainView : ReactiveUserControl<MainWindowViewModel>
     {
         public MainView()
         {
@@ -23,7 +25,7 @@ namespace System.Application.UI.Views
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 sp.Margin = new Avalonia.Thickness(0, 0, 140, 0);
             else
-                sp.Margin = new Avalonia.Thickness(0, 12, 15, 0);
+                sp.Margin = new Avalonia.Thickness(0, 6, 10, 0);
 
         }
     }

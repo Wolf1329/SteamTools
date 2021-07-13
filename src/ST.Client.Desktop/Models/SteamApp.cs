@@ -1,5 +1,6 @@
-﻿using ReactiveUI;
+using ReactiveUI;
 using System.Application.Services;
+using System.Application.UI;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -54,7 +55,7 @@ namespace System.Application.Models
             {
                 if (_cachedName == null)
                 {
-                    _cachedName = _properties.GetPropertyValue<string>(null, new string[]
+                    _cachedName = _properties?.GetPropertyValue<string>(null, new string[]
                     {
                         NodeAppInfo,
                         NodeCommon,
@@ -65,7 +66,7 @@ namespace System.Application.Models
             }
             set
             {
-                _properties.SetPropertyValue(SteamAppPropertyType.String, value, new string[]
+                _properties?.SetPropertyValue(SteamAppPropertyType.String, value, new string[]
                 {
                     NodeAppInfo,
                     NodeCommon,
@@ -133,7 +134,12 @@ namespace System.Application.Models
         public string? IconUrl => string.IsNullOrEmpty(Icon) ? null :
             string.Format(STEAMAPP_LOGO_URL, AppId, Icon);
 
-        public Process? Process { get; set; }
+        private Process? _Process;
+        public Process? Process
+        {
+            get => _Process;
+            set => this.RaiseAndSetIfChanged(ref _Process, value);
+        }
 
         //public TradeCard? Card { get; set; }
 
@@ -179,6 +185,10 @@ namespace System.Application.Models
             modified(this, new EventArgs());
         }
 
+        public Process StartSteamAppProcess()
+        {
+            return Process = Process.Start(AppHelper.ProgramPath, "-clt app -silence -id " + AppId.ToString());
+        }
 
         public static SteamApp? FromReader(BinaryReader reader)
         {
@@ -258,7 +268,7 @@ namespace System.Application.Models
             }
             catch (Exception ex)
             {
-                Log.Error(nameof(SteamApp), ex, string.Format("Failed to load entry with appId {0:X8}", app.AppId));
+                Log.Error(nameof(SteamApp), ex, string.Format("Failed to load entry with appId {0}", app.AppId));
             }
             return app;
         }

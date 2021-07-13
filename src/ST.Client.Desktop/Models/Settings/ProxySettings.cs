@@ -1,9 +1,9 @@
-using System;
 using System.Application.Serialization;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
+using System.Net;
 using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
 
 namespace System.Application.Models.Settings
 {
@@ -50,6 +50,17 @@ namespace System.Application.Models.Settings
         public static SerializableProperty<IReadOnlyCollection<string>> SupportProxyServicesStatus { get; }
             = new SerializableProperty<IReadOnlyCollection<string>>(GetKey(), Providers.Local, new List<string>());
 
+        /// <summary>
+        /// 系统代理模式端口
+        /// </summary>
+        public static SerializableProperty<int> SystemProxyPortId { get; }
+            = new SerializableProperty<int>(GetKey(), Providers.Local, 26501);
+
+        /// <summary>
+        /// 系统代理模式IP
+        /// </summary>
+        public static SerializableProperty<string> SystemProxyIp { get; }
+            = new SerializableProperty<string>(GetKey(), Providers.Local, IPAddress.Loopback.ToString());
 
         /// <summary>
         /// 脚本启用状态
@@ -57,7 +68,7 @@ namespace System.Application.Models.Settings
         public static SerializableProperty<IReadOnlyCollection<int>> ScriptsStatus { get; }
             = new SerializableProperty<IReadOnlyCollection<int>>(GetKey(), Providers.Local, new List<int>()) { AutoSave = true };
 
-
+        
         private static string GetKey([CallerMemberName] string propertyName = "")
         {
             return nameof(ProxySettings) + "." + propertyName;

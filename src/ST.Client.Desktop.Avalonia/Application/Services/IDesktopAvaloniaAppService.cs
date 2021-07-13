@@ -1,6 +1,9 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using System.Threading.Tasks;
+using System.Linq;
 using AvaloniaApplication = Avalonia.Application;
+using System.Application.UI.ViewModels;
 
 namespace System.Application.Services
 {
@@ -29,6 +32,47 @@ namespace System.Application.Services
         {
             var owner = GetActiveWindow();
             window.Show(owner);
+        }
+
+        void ShowWindowNoParent(Window window)
+        {
+            var owner = GetActiveWindow();
+            window.Show();
+        }
+
+        /// <summary>
+        /// 根据WindowViewModel显示window
+        /// </summary>
+        /// <param name="window"></param>
+        void ShowWindowNoParent(WindowViewModel vm)
+        {
+            if (Current.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                var window = desktop.Windows.FirstOrDefault(x => x.DataContext == vm);
+                window?.Show();
+            }
+        }
+
+        /// <summary>
+        /// 根据WindowViewModel关闭window
+        /// </summary>
+        /// <param name="window"></param>
+        void CloseWindow(WindowViewModel vm)
+        {
+            if (Current.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                var window = desktop.Windows.FirstOrDefault(x => x.DataContext == vm);
+                window?.Close();
+            }
+        }
+
+        void HideWindow(WindowViewModel vm)
+        {
+            if (Current.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                var window = desktop.Windows.FirstOrDefault(x => x.DataContext == vm);
+                window?.Hide();
+            }
         }
     }
 }

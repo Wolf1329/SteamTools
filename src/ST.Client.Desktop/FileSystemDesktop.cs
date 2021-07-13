@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 #if NET35
 using WinFormsApplication = System.Windows.Forms.Application;
 #endif
@@ -9,7 +9,7 @@ namespace System.Application
     /// 适用于桌面端的文件系统帮助类，参考 Xamarin.Essentials.FileSystem
     /// <para><see cref="https://docs.microsoft.com/zh-cn/xamarin/essentials/file-system-helpers?tabs=uwp"/></para>
     /// </summary>
-    public class FileSystemDesktop
+    public static class FileSystemDesktop
     {
         public const string AppDataDirName = "AppData";
         public const string CacheDirName = "Cache";
@@ -32,7 +32,7 @@ namespace System.Application
 #if NET35
                 WinFormsApplication.StartupPath;
 #else
-                AppContext.BaseDirectory;
+                IOPath.BaseDirectory;
 #endif
 
             var appDataPath = Path.Combine(appDataRootPath, AppDataDirName);
@@ -44,6 +44,7 @@ namespace System.Application
             string GetCacheDirectory() => cachePath;
         }
 
+#if DEBUG
         /// <inheritdoc cref="Xamarin.Essentials.FileSystem.AppDataDirectory"/>
         [Obsolete("use IOPath.AppDataDirectory", true)]
         public static string AppDataDirectory => IOPath.AppDataDirectory;
@@ -51,5 +52,6 @@ namespace System.Application
         /// <inheritdoc cref="Xamarin.Essentials.FileSystem.CacheDirectory"/>
         [Obsolete("use IOPath.CacheDirectory", true)]
         public static string CacheDirectory => IOPath.CacheDirectory;
+#endif
     }
 }

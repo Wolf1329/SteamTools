@@ -1,17 +1,20 @@
-﻿using System.Application.Models;
+using System.Application.Models;
 using System.Application.Models.Settings;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
-using ResizeMode = System.Int32;
+using System.Windows;
 
 namespace System.Application.Services
 {
-    public interface IDesktopPlatformService
+    public interface IDesktopPlatformService : IPlatformService
     {
-        const string TAG = "DesktopPlatformS";
+        protected new const string TAG = "DesktopPlatformS";
 
-        void SetResizeMode(IntPtr hWnd, ResizeMode value);
+        public new static IDesktopPlatformService Instance => DI.Get<IDesktopPlatformService>();
+
+        void SetResizeMode(IntPtr hWnd, ResizeModeCompat value);
 
         /// <summary>
         /// 获取一个正在运行的进程的命令行参数。
@@ -28,8 +31,21 @@ namespace System.Application.Services
         /// </summary>
         string HostsFilePath => "/etc/hosts";
 
-        void StartProcess(string name, string filePath) => Process.Start(name, filePath);
+        /// <summary>
+        /// 启动进程，传递文件名参数
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="filePath"></param>
+        /// <exception cref="ArgumentNullException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        /// <exception cref="ComponentModel.Win32Exception"></exception>
+        /// <exception cref="ObjectDisposedException"></exception>
+        /// <exception cref="IO.FileNotFoundException"></exception>
+        void StartProcess(string name, string filePath) => Process.Start(name, $"\"{filePath}\"");
 
+        void OpenProcess(string name, string arguments) => Process.Start(name, arguments);
+
+        void OpenProcess(string name) => Process.Start(name);
         /// <summary>
         /// 使用文本阅读器打开文件
         /// </summary>
@@ -67,8 +83,8 @@ namespace System.Application.Services
             }
 
             var providers = new List<TextReaderProvider>() {
-                TextReaderProvider.VSCode,
-                TextReaderProvider.Notepad };
+                TextReaderProvider.Notepad,
+                TextReaderProvider.VSCode };
 
             if (userProvider.HasValue)
             {
@@ -94,6 +110,17 @@ namespace System.Application.Services
                 }
             }
         }
+
+        /// <summary>
+        /// 使用资源管理器打开某个路径
+        /// </summary>
+        /// <param name="dirPath"></param>
+        void OpenFolder(string dirPath);
+
+        /// <summary>
+        /// 设置系统关闭时任务
+        /// </summary>
+        void SetSystemSessionEnding(Action action);
 
         /// <summary>
         /// 获取文本阅读器提供商程序文件路径或文件名(如果提供程序已注册环境变量)
@@ -124,11 +151,6 @@ namespace System.Application.Services
         void SetCurrentUser(string userName);
 
         #endregion
-
-        public const ResizeMode ResizeMode_NoResize = 0;
-        public const ResizeMode ResizeMode_CanMinimize = 1;
-        public const ResizeMode ResizeMode_CanResize = 2;
-        public const ResizeMode ResizeMode_CanResizeWithGrip = 3;
 
         #region MachineUniqueIdentifier
 
@@ -171,5 +193,46 @@ namespace System.Application.Services
         /// </summary>
         /// <param name="enable"></param>
         void SetLightOrDarkThemeFollowingSystem(bool enable);
+
+        /// <summary>
+        /// 打开桌面图标设置
+        /// </summary>
+        [SupportedOSPlatform("Windows")]
+        void OpenDesktopIconsSettings();
+
+        [SupportedOSPlatform("Windows")]
+        void OpenGameControllers();
+
+        /// <summary>
+        /// 已正常权限启动进程
+        /// </summary>
+        /// <param name="fileName"></param>
+        /// <returns></returns>
+        [SupportedOSPlatform("Windows")]
+        Process StartAsInvoker(string fileName);
+
+        /// <summary>
+        /// 获取占用端口的进程
+        /// </summary>
+        /// <param name="port"></param>
+        /// <param name="isTCPorUDP"></param>
+        /// <returns></returns>
+        [SupportedOSPlatform("Windows")]
+        Process? GetProcessByPortOccupy(ushort port, bool isTCPorUDP = true);
+
+        [SupportedOSPlatform("Windows")]
+        bool IsAdministrator { get; }
+
+        /// <summary>
+        /// 从管理员权限进程中降权到普通权限启动进程
+        /// </summary>
+        /// <param name="cmdArgs"></param>
+        [SupportedOSPlatform("Windows")]
+        void UnelevatedProcessStart(string cmdArgs);
+
+        void FixFluentWindowStyleOnWin7(IntPtr hWnd)
+        {
+
+        }
     }
 }

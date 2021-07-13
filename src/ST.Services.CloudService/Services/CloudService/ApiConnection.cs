@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Polly;
 using System;
-using System.Application.Columns;
 using System.Application.Models;
 using System.Application.Models.Internals;
 using System.Collections.Generic;
@@ -44,10 +44,10 @@ namespace System.Application.Services.CloudService
         async ValueTask<JWTEntity?> SetRequestHeaderAuthorization(HttpRequestMessage request)
         {
             var authToken = await conn_helper.Auth.GetAuthTokenAsync();
-            if (authToken.HasValue())
+            var authHeaderValue = conn_helper.GetAuthenticationHeaderValue(authToken);
+            if (authHeaderValue != null)
             {
-                request.Headers.Authorization = new AuthenticationHeaderValue(
-                    Constants.Basic, authToken?.AccessToken);
+                request.Headers.Authorization = authHeaderValue;
                 return authToken;
             }
             return null;
@@ -266,11 +266,7 @@ namespace System.Application.Services.CloudService
         }
 
         void ShowResponseErrorMessage(IApiResponse response, string? errorAppendText = null)
-        {
-            if (response.Code == ApiResponseCode.Canceled) return;
-            var message = ApiResponse.GetMessage(response, errorAppendText);
-            conn_helper.ShowResponseErrorMessage(message);
-        }
+            => conn_helper.ShowResponseErrorMessage(response, errorAppendText);
 
         async Task GlobalResponseIntercept(
             HttpMethod method,
@@ -327,14 +323,15 @@ namespace System.Application.Services.CloudService
                             if (response is IApiResponse<ILoginResponse> loginResponse
                                   && loginResponse.Content != null)
                             {
-                                IReadOnlyPhoneNumber? phoneNumber;
-                                if (loginResponse.Content is IReadOnlyPhoneNumber phoneNumber1)
-                                    phoneNumber = phoneNumber1;
-                                else if (request is IReadOnlyPhoneNumber phoneNumber2)
-                                    phoneNumber = phoneNumber2;
-                                else
-                                    phoneNumber = null;
-                                await conn_helper.OnLoginedAsync(phoneNumber, loginResponse.Content);
+                                //IReadOnlyPhoneNumber? phoneNumber;
+                                //if (loginResponse.Content is IReadOnlyPhoneNumber phoneNumber1)
+                                //    phoneNumber = phoneNumber1;
+                                //else if (request is IReadOnlyPhoneNumber phoneNumber2)
+                                //    phoneNumber = phoneNumber2;
+                                //else
+                                //    phoneNumber = null;
+                                //await conn_helper.OnLoginedAsync(phoneNumber, loginResponse.Content);
+                                await conn_helper.OnLoginedAsync(loginResponse.Content, loginResponse.Content);
                             }
                             else if (response is IApiResponse<IReadOnlyAuthToken> authTokenResponse
                                 && authTokenResponse.Content != null)
@@ -387,18 +384,6 @@ namespace System.Application.Services.CloudService
             await GlobalResponseIntercept(method, requestUri, response, isShowResponseErrorMessage, errorAppendText);
         }
 
-        /// <summary>
-        /// 是否有网络链接
-        /// </summary>
-        bool IsConnected
-        {
-            get
-            {
-                if (DI.Platform == Platform.Windows || (DI.Platform == Platform.Apple && DI.DeviceIdiom == DeviceIdiom.Desktop) || DI.Platform == Platform.Linux || DI.Platform == Platform.Unknown) return true;
-                return Connectivity.NetworkAccess == NetworkAccess.Internet;
-            }
-        }
-
         bool GlobalBeforeIntercept<TResponseModel>(
             [NotNullWhen(true)] out IApiResponse<TResponseModel>? responseResult,
             bool isShowResponseErrorMessage = true,
@@ -408,7 +393,7 @@ namespace System.Application.Services.CloudService
 
             #region NetworkAccess
 
-            if (!IsConnected)
+            if (!http_helper.IsConnected)
             {
                 responseResult = ApiResponse.Code<TResponseModel>(ApiResponseCode.NetworkConnectionInterruption, Constants.NetworkConnectionInterruption);
             }
@@ -534,15 +519,15 @@ namespace System.Application.Services.CloudService
 
                 var serializableImplType = Serializable.ImplType.MessagePack;
 
-                using var request = new HttpRequestMessage(method, requestUri)
+                var request = new HttpRequestMessage(method, requestUri)
                 {
                     Version = HttpVersion.Version20,
                     Content = GetRequestContent(
-                        isSecurity,
-                        aes,
-                        serializableImplType,
-                        requestModel,
-                        cancellationToken),
+                       isSecurity,
+                       aes,
+                       serializableImplType,
+                       requestModel,
+                       cancellationToken),
                 };
 
                 switch (serializableImplType)
@@ -583,10 +568,10 @@ namespace System.Application.Services.CloudService
 
                 HandleHttpRequest(request);
 
-                using var response = await client.SendAsync(request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    cancellationToken)
-                    .ConfigureAwait(false);
+                var response = await client.SendAsync(request,
+                   HttpCompletionOption.ResponseHeadersRead,
+                   cancellationToken)
+                   .ConfigureAwait(false);
 
                 HandleAppObsolete(response.Headers);
 
@@ -693,16 +678,82 @@ namespace System.Application.Services.CloudService
             return responseResult;
         }
 
-        const int bufferSize = 4096;
+        #region Polly
 
-        public async Task<IApiResponse> DownloadAsync(
-            CancellationToken cancellationToken,
-            string requestUri,
-            string cacheFilePath,
-            IProgress<float> progress,
+        const int numRetries = 10;
+
+        static bool PollyHandleResultPredicate<TResponse>(TResponse response) where TResponse : IApiResponse
+            => response is ApiResponseImpl impl &&
+                impl.ClientException != null &&
+                impl.Code == ApiResponseCode.ClientException;
+
+        static TimeSpan PollyRetryAttempt(int attemptNumber)
+        {
+            var powY = attemptNumber % numRetries;
+            var timeSpan = TimeSpan.FromMilliseconds(Math.Pow(2, powY));
+            int addS = attemptNumber / numRetries;
+            if (addS > 0) timeSpan = timeSpan.Add(TimeSpan.FromSeconds(addS));
+            return timeSpan;
+        }
+
+        #endregion
+
+        async Task<IApiResponse<TResponseModel>> SendCoreAsync<TRequestModel, TResponseModel>(
+            bool isPolly,
             bool isAnonymous,
+            bool isApi,
+            CancellationToken cancellationToken,
+            HttpMethod method,
+            string requestUri,
+            TRequestModel? requestModel,
+            bool responseContentMaybeNull,
+            bool isSecurity,
             bool isShowResponseErrorMessage = true,
             string? errorAppendText = null)
+        {
+            IApiResponse<TResponseModel> response;
+            Task<IApiResponse<TResponseModel>> _SendCoreAsync()
+                => SendCoreAsync<TRequestModel, TResponseModel>(
+                    isAnonymous,
+                    isApi,
+                    cancellationToken,
+                    method,
+                    requestUri,
+                    requestModel,
+                    responseContentMaybeNull,
+                    isSecurity,
+                    !isPolly && isShowResponseErrorMessage,
+                    errorAppendText);
+            if (isPolly)
+            {
+                response = await Policy.HandleResult<IApiResponse<TResponseModel>>(PollyHandleResultPredicate)
+                    .WaitAndRetryAsync(numRetries, PollyRetryAttempt)
+                    .ExecuteAsync(_SendCoreAsync);
+                if (!response.IsSuccess)
+                {
+                    if (isShowResponseErrorMessage)
+                    {
+                        ShowResponseErrorMessage(response, errorAppendText);
+                    }
+                }
+            }
+            else
+            {
+                response = await _SendCoreAsync();
+            }
+            return response;
+        }
+
+        const int bufferSize = 4096;
+
+        async Task<IApiResponse> DownloadAsync(
+           CancellationToken cancellationToken,
+           string requestUri,
+           string cacheFilePath,
+           IProgress<float>? progress,
+           bool isAnonymous,
+           bool isShowResponseErrorMessage = true,
+           string? errorAppendText = null)
         {
             var cacheDirPath = Path.GetDirectoryName(cacheFilePath);
             if (cacheDirPath == null) throw new ArgumentNullException(nameof(cacheDirPath));
@@ -717,7 +768,7 @@ namespace System.Application.Services.CloudService
             IApiResponse responseResult;
             try
             {
-                using var request = new HttpRequestMessage(method, requestUri)
+                var request = new HttpRequestMessage(method, requestUri)
                 {
                     Version = HttpVersion.Version20,
                 };
@@ -733,10 +784,10 @@ namespace System.Application.Services.CloudService
 
                 HandleHttpRequest(request);
 
-                using var response = await client.SendAsync(request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    cancellationToken)
-                    .ConfigureAwait(false);
+                var response = await client.SendAsync(request,
+                   HttpCompletionOption.ResponseHeadersRead,
+                   cancellationToken)
+                   .ConfigureAwait(false);
 
                 var code = (ApiResponseCode)response.StatusCode;
 
@@ -764,6 +815,7 @@ namespace System.Application.Services.CloudService
                     if (total > 0)
                     {
                         var canReportProgress = progress != null;
+                        IOPath.FileIfExistsItDelete(cacheFilePath);
                         using var fileStream = new FileStream(cacheFilePath,
                             FileMode.CreateNew,
                             FileAccess.Write,
@@ -821,9 +873,50 @@ namespace System.Application.Services.CloudService
             return responseResult;
         }
 
-        public async Task<IApiResponse<TResponseModel>> SendAsync<TRequestModel, TResponseModel>(CancellationToken cancellationToken, HttpMethod method, string requestUri, TRequestModel? request, bool responseContentMaybeNull, bool isSecurity, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null)
+        public async Task<IApiResponse> DownloadAsync(
+            CancellationToken cancellationToken,
+            string requestUri,
+            string cacheFilePath,
+            IProgress<float>? progress,
+            bool isAnonymous,
+            bool isShowResponseErrorMessage = true,
+            string? errorAppendText = null,
+            bool isPolly = true)
+        {
+            IApiResponse response;
+            Task<IApiResponse> _DownloadAsync()
+                => DownloadAsync(
+                    cancellationToken,
+                    requestUri,
+                    cacheFilePath,
+                    progress,
+                    isAnonymous,
+                    !isPolly && isShowResponseErrorMessage,
+                    errorAppendText);
+            if (isPolly)
+            {
+                response = await Policy.HandleResult<IApiResponse>(PollyHandleResultPredicate)
+                    .WaitAndRetryAsync(numRetries, PollyRetryAttempt)
+                    .ExecuteAsync(_DownloadAsync);
+                if (!response.IsSuccess)
+                {
+                    if (isShowResponseErrorMessage)
+                    {
+                        ShowResponseErrorMessage(response, errorAppendText);
+                    }
+                }
+            }
+            else
+            {
+                response = await _DownloadAsync();
+            }
+            return response;
+        }
+
+        public async Task<IApiResponse<TResponseModel>> SendAsync<TRequestModel, TResponseModel>(CancellationToken cancellationToken, HttpMethod method, string requestUri, TRequestModel? request, bool responseContentMaybeNull, bool isSecurity, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null, bool isPolly = false)
         {
             var rsp = await SendCoreAsync<TRequestModel, TResponseModel>(
+                isPolly: isPolly,
                 isAnonymous: isAnonymous,
                 isApi: true,
                 cancellationToken,
@@ -837,9 +930,10 @@ namespace System.Application.Services.CloudService
             return rsp;
         }
 
-        public async Task<IApiResponse<byte[]>> GetRaw(CancellationToken cancellationToken, string requestUri, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null)
+        public async Task<IApiResponse<byte[]>> GetRaw(CancellationToken cancellationToken, string requestUri, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null, bool isPolly = true)
         {
             var rsp = await SendCoreAsync<object, byte[]>(
+                isPolly: isPolly,
                 isAnonymous: isAnonymous,
                 isApi: false,
                 cancellationToken,
@@ -853,9 +947,10 @@ namespace System.Application.Services.CloudService
             return rsp;
         }
 
-        public async Task<IApiResponse<string>> GetHtml(CancellationToken cancellationToken, string requestUri, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null)
+        public async Task<IApiResponse<string>> GetHtml(CancellationToken cancellationToken, string requestUri, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null, bool isPolly = true)
         {
             var rsp = await SendCoreAsync<object, string>(
+                isPolly: isPolly,
                 isAnonymous: isAnonymous,
                 isApi: false,
                 cancellationToken,
@@ -869,9 +964,10 @@ namespace System.Application.Services.CloudService
             return rsp;
         }
 
-        public async Task<IApiResponse> SendAsync<TRequestModel>(CancellationToken cancellationToken, HttpMethod method, string requestUri, TRequestModel? request, bool isSecurity, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null)
+        public async Task<IApiResponse> SendAsync<TRequestModel>(CancellationToken cancellationToken, HttpMethod method, string requestUri, TRequestModel? request, bool isSecurity, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null, bool isPolly = false)
         {
             var rsp = await SendCoreAsync<TRequestModel, object>(
+                isPolly: isPolly,
                 isAnonymous: isAnonymous,
                 isApi: true,
                 cancellationToken,
@@ -885,9 +981,10 @@ namespace System.Application.Services.CloudService
             return rsp;
         }
 
-        public async Task<IApiResponse> SendAsync(CancellationToken cancellationToken, HttpMethod method, string requestUri, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null)
+        public async Task<IApiResponse> SendAsync(CancellationToken cancellationToken, HttpMethod method, string requestUri, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null, bool isPolly = false)
         {
             var rsp = await SendCoreAsync<object, object>(
+                isPolly: isPolly,
                 isAnonymous: isAnonymous,
                 isApi: true,
                 cancellationToken,
@@ -901,9 +998,10 @@ namespace System.Application.Services.CloudService
             return rsp;
         }
 
-        public async Task<IApiResponse<TResponseModel>> SendAsync<TResponseModel>(CancellationToken cancellationToken, HttpMethod method, string requestUri, bool responseContentMaybeNull, bool isSecurity, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null)
+        public async Task<IApiResponse<TResponseModel>> SendAsync<TResponseModel>(CancellationToken cancellationToken, HttpMethod method, string requestUri, bool responseContentMaybeNull, bool isSecurity, bool isAnonymous, bool isShowResponseErrorMessage = true, string? errorAppendText = null, bool isPolly = false)
         {
             var rsp = await SendCoreAsync<object, TResponseModel>(
+                isPolly: isPolly,
                 isAnonymous: isAnonymous,
                 isApi: true,
                 cancellationToken,

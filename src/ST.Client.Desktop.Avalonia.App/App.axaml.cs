@@ -31,14 +31,13 @@ using System.Application.Services.Implementation;
 using APIConst = System.Application.Services.CloudService.Constants;
 
 [assembly: Guid("82cda250-48a2-48ad-ab03-5cda873ef80c")]
-[assembly: AssemblyTitle(ThisAssembly.AssemblyTrademark)]
 namespace System.Application.UI
 {
     public partial class App : AvaloniaApplication, IDisposableHolder, IDesktopAppService, IDesktopAvaloniaAppService
     {
         public static App Instance => Current is App app ? app : throw new Exception("Impossible");
 
-        public static DirectoryInfo RootDirectory => new(AppContext.BaseDirectory);
+        //public static DirectoryInfo RootDirectory => new(IOPath.BaseDirectory);
 
         AppTheme mTheme = AppTheme.Dark;
         public AppTheme Theme
@@ -123,28 +122,38 @@ namespace System.Application.UI
 
         public override void Initialize()
         {
+#if StartupTrace
+            StartupTrace.Restart("App.Initialize");
+#endif
             AvaloniaXamlLoader.Load(this);
-
+#if StartupTrace
+            StartupTrace.Restart("App.LoadXAML");
+#endif
             Name = ThisAssembly.AssemblyTrademark;
             ViewModelBase.IsInDesignMode = ApplicationLifetime == null;
             if (ViewModelBase.IsInDesignMode) Startup.Init(DILevel.MainProcess);
-
+#if StartupTrace
+            StartupTrace.Restart("App.SetP");
+#endif
             var windowService = IWindowService.Instance;
             windowService.Init();
-
+            DI.Get<IDesktopPlatformService>().SetSystemSessionEnding(compositeDisposable.Dispose);
+#if StartupTrace
+            StartupTrace.Restart("WindowService.Init");
+#endif
             SettingsHost.Load();
-#if !UI_DEMO
-            if (GeneralSettings.IsStartupAppMinimized.Value)
-            {
-                Program.IsMinimize = true;
-                if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-                    desktop.MainWindow = null;
-            }
+#if StartupTrace
+            StartupTrace.Restart("SettingsHost.Init");
 #endif
             Theme = (AppTheme)UISettings.Theme.Value;
+#if StartupTrace
+            StartupTrace.Restart("Theme");
+#endif
             UISettings.Theme.Subscribe(x => Theme = (AppTheme)x);
             UISettings.Language.Subscribe(x => R.ChangeLanguage(x));
-
+#if StartupTrace
+            StartupTrace.Restart("UISettings.Subscribe");
+#endif
             switch (windowService.MainWindow)
             {
                 case AchievementWindowViewModel window:
@@ -156,11 +165,19 @@ namespace System.Application.UI
 
                 default:
                     #region 主窗口启动时加载的资源
+#if !UI_DEMO
                     compositeDisposable.Add(SettingsHost.Save);
                     compositeDisposable.Add(ProxyService.Current.Dispose);
                     compositeDisposable.Add(AuthService.Current.SaveEditNameAuthenticators);
                     compositeDisposable.Add(SteamConnectService.Current.Dispose);
-
+                    compositeDisposable.Add(ASFService.Current.StopASF);
+                    if (GeneralSettings.IsStartupAppMinimized.Value)
+                    {
+                        Program.IsMinimize = true;
+                        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                            desktop.MainWindow = null;
+                    }
+#endif
                     #endregion
                     MainWindow = new MainWindow
                     {
@@ -168,6 +185,9 @@ namespace System.Application.UI
                     };
                     break;
             }
+#if StartupTrace
+            StartupTrace.Restart("Set MainWindow");
+#endif
         }
 
         public ContextMenu? NotifyIconContextMenu { get; private set; }
@@ -184,9 +204,9 @@ namespace System.Application.UI
             // 在UI预览中，ApplicationLifetime 为 null
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-#if MAC
-                AppDelegate.Init();
-#endif
+                //#if MAC
+                //                AppDelegate.Init();
+                //#endif
 
                 if (Program.IsMainProcess)
                 {
@@ -206,12 +226,17 @@ namespace System.Application.UI
                                 notifyIcon.IconPath = "avares://System.Application.SteamTools.Client.Desktop.Avalonia/Application/UI/Assets/Icon_16.png";
                                 break;
                         }
-
-                        notifyIcon.DoubleClick += (s, e) =>
+#if WINDOWS
+                        notifyIcon.RightClick += (s, e) =>
                         {
-                            RestoreMainWindow();
+                            if (e is MouseEventArgs args)
+                            {
+                                IWindowService.Instance.ShowTaskBarWindow(args.MousePosition.X, args.MousePosition.Y);
+                            }
                         };
+#endif
 
+#if !WINDOWS
                         NotifyIconContextMenu = new ContextMenu();
 
                         mNotifyIconMenus.Add("Light", ReactiveCommand.Create(() =>
@@ -233,6 +258,8 @@ namespace System.Application.UI
                         NotifyIconContextMenu.Items = mNotifyIconMenus
                             .Select(x => new MenuItem { Header = x.Key, Command = x.Value }).ToList();
                         notifyIcon.ContextMenu = NotifyIconContextMenu;
+#endif
+
                         notifyIcon.Visible = true;
                         notifyIcon.Click += NotifyIcon_Click;
                         notifyIcon.DoubleClick += NotifyIcon_Click;
@@ -240,8 +267,9 @@ namespace System.Application.UI
                         {
                             notifyIcon.IconPath = string.Empty;
                         });
-                        #endregion
                     }
+
+                    #endregion
 
 #if WINDOWS
                     JumpLists.Init();
@@ -265,7 +293,7 @@ namespace System.Application.UI
 #if UI_DEMO
                     ShutdownMode.OnMainWindowClose;
 #else
-                Startup.HasNotifyIcon ? ShutdownMode.OnExplicitShutdown : ShutdownMode.OnLastWindowClose;
+                Startup.HasNotifyIcon ? ShutdownMode.OnExplicitShutdown : ShutdownMode.OnMainWindowClose;
 #endif
             }
 
@@ -274,14 +302,29 @@ namespace System.Application.UI
 
         void Desktop_Startup(object? sender, ControlledApplicationLifetimeStartupEventArgs e)
         {
+#if StartupTrace
+            StartupTrace.Restart("Desktop_Startup.Start");
+#endif
 #if WINDOWS
             VisualStudioAppCenterSDK.Init();
 #endif
+#if StartupTrace
+            StartupTrace.Restart("AppCenterSDK.Init");
+#endif
             AppHelper.Initialized?.Invoke();
+#if StartupTrace
+            StartupTrace.Restart("Desktop_Startup.AppHelper.Initialized?");
+#endif
             if (Program.IsMainProcess)
             {
                 Startup.ActiveUserPost(ActiveUserType.OnStartup);
-                IAppUpdateService.Instance.CheckUpdate(showIsExistUpdateFalse: false);
+                if (GeneralSettings.IsAutoCheckUpdate.Value)
+                {
+                    IAppUpdateService.Instance.CheckUpdate(showIsExistUpdateFalse: false);
+                }
+#if StartupTrace
+                StartupTrace.Restart("Desktop_Startup.MainProcess");
+#endif
             }
 
             var startupToastIntercept = DI.Get_Nullable<StartupToastIntercept>();
@@ -289,6 +332,9 @@ namespace System.Application.UI
             {
                 startupToastIntercept.IsStartuped = true;
             }
+#if StartupTrace
+            StartupTrace.Restart("Desktop_Startup.SetIsStartuped");
+#endif
         }
 
         void ApplicationLifetime_Exit(object? sender, ControlledApplicationLifetimeExitEventArgs e)
@@ -304,7 +350,7 @@ namespace System.Application.UI
 #if WINDOWS
             //WpfApplication.Current.Shutdown();
 #endif
-            AppHelper.Shutdown?.Invoke();
+            AppHelper.TryShutdown();
         }
 
         void NotifyIcon_Click(object? sender, EventArgs e)
@@ -349,13 +395,15 @@ namespace System.Application.UI
 
             mainWindow.Show();
             mainWindow.WindowState = WindowState.Normal;
+            mainWindow.Topmost = true;
+            mainWindow.Topmost = false;
             mainWindow.BringIntoView();
             mainWindow.ActivateWorkaround(); // Extension method hack because of https://github.com/AvaloniaUI/Avalonia/issues/2975
             mainWindow.Focus();
 
-            // Again, ugly hack because of https://github.com/AvaloniaUI/Avalonia/issues/2994
-            mainWindow.Width += 0.1;
-            mainWindow.Width -= 0.1;
+            //// Again, ugly hack because of https://github.com/AvaloniaUI/Avalonia/issues/2994
+            //mainWindow.Width += 0.1;
+            //mainWindow.Width -= 0.1;
         }
 
         public bool HasActiveWindow()
@@ -390,7 +438,10 @@ namespace System.Application.UI
         {
             if (AvaloniaApplication.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                desktop.Shutdown(exitCode);
+                MainThread2.BeginInvokeOnMainThread(() =>
+                {
+                    desktop.Shutdown(exitCode);
+                });
                 return true;
             }
             return false;

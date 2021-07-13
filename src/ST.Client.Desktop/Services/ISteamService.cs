@@ -1,7 +1,8 @@
-﻿using System.Application.Models;
+using System.Application.Models;
 using System.Collections.Generic;
-using System.IO;
+using System.Net;
 using System.Threading.Tasks;
+using static System.Application.Services.CloudService.Constants;
 
 namespace System.Application.Services
 {
@@ -10,6 +11,16 @@ namespace System.Application.Services
     /// </summary>
     public interface ISteamService
     {
+        public const int IPC_Call_GetLoginUsingSteamClient_Timeout_MS = 6500;
+        protected const string url_localhost_auth_public = Prefix_HTTP + "127.0.0.1:27060/auth/?u=public";
+        public const string url_steamcommunity_ = "steamcommunity.com";
+        public const string url_store_steampowered_ = "store.steampowered.com";
+        public const string url_steamcommunity = Prefix_HTTPS + url_steamcommunity_;
+        public const string url_store_steampowered = Prefix_HTTPS + url_store_steampowered_;
+        public const string url_store_steampowered_checkclientautologin = url_store_steampowered + "/login/checkclientautologin";
+        public const string url_steamcommunity_checkclientautologin = url_steamcommunity + "/login/checkclientautologin";
+        public static readonly Uri uri_store_steampowered_checkclientautologin = new(url_store_steampowered_checkclientautologin);
+
         public static ISteamService Instance => DI.Get<ISteamService>();
 
         /// <summary>
@@ -46,7 +57,7 @@ namespace System.Application.Services
         /// 启动 Steam
         /// </summary>
         /// <param name="arguments"></param>
-        void StartSteam(string arguments = "");
+        void StartSteam(string? arguments = null);
 
         /// <summary>
         /// 获取最后一次自动登陆 Steam 用户名称
@@ -60,6 +71,14 @@ namespace System.Application.Services
         /// <returns></returns>
         List<SteamUser> GetRememberUserList();
 
+        bool UpdateAuthorizedDeviceList(IEnumerable<AuthorizedDevice> list);
+        bool RemoveAuthorizedDeviceList(AuthorizedDevice list);
+        /// <summary>
+        /// 获取所有当前PC共享授权信息
+        /// </summary>
+        /// <returns></returns>
+        List<AuthorizedDevice> GetAuthorizedDeviceList();
+
         /// <summary>
         /// 设置下次登陆 Steam 用户
         /// </summary>
@@ -72,7 +91,7 @@ namespace System.Application.Services
 
         bool UpdateAppListJson(string appsJsonStr, string filePath);
 
-        void DeleteLocalUserData(SteamUser user);
+        void DeleteLocalUserData(SteamUser user, bool IsDeleteUserData = false);
 
         void UpdateLocalUserData(SteamUser user);
 
@@ -84,5 +103,36 @@ namespace System.Application.Services
         Task<string> GetAppImageAsync(SteamApp app, SteamApp.LibCacheType type);
 
         ValueTask LoadAppImageAsync(SteamApp app);
+
+        public const string LoginUsingSteamClientCookieObsolete = "获取 Steam 客户端自动登录 Cookie 自动化流程有很大概率失败，后续改为在系统默认浏览器中进行第三方账号快速登录。";
+
+        /// <summary>
+        /// 获取 Steam 客户端自动登录 Cookie(用于写入到 WebView3 中免登录)
+        /// </summary>
+        /// <param name="runasInvoker"></param>
+        /// <returns></returns>
+        [Obsolete(LoginUsingSteamClientCookieObsolete)]
+        Task<(LoginUsingSteamClientResultCode resultCode, CookieCollection? cookies)> GetLoginUsingSteamClientCookieCollectionAsync(bool runasInvoker = false);
+
+        /// <summary>
+        /// 获取 Steam 客户端自动登录 Cookie(用于写入到 WebView3 中免登录)
+        /// </summary>
+        /// <returns></returns>
+        /// <exception cref="OperationCanceledException"></exception>
+        [Obsolete(LoginUsingSteamClientCookieObsolete)]
+        Task<(LoginUsingSteamClientResultCode resultCode, string[]? cookies)> GetLoginUsingSteamClientCookiesAsync();
+
+        [Obsolete(LoginUsingSteamClientCookieObsolete)]
+        public enum LoginUsingSteamClientResultCode
+        {
+            Success = 200,
+            Canceled = 601,
+            Exception1,
+            Exception2,
+            CantConnSteamCommunity,
+            CantConnLocalHost27060,
+            MissingCookieSteamLoginSecure,
+            EmptyOrNull,
+        }
     }
 }

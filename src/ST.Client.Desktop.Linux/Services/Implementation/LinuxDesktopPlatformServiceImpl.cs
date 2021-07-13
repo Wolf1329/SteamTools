@@ -1,12 +1,13 @@
-﻿using System.Application.Models;
+using System.Application.Models;
 using System.Diagnostics;
 using System.IO;
+using System.Windows;
 
 namespace System.Application.Services.Implementation
 {
-    internal sealed class LinuxDesktopPlatformServiceImpl : IDesktopPlatformService
+    internal sealed partial class LinuxDesktopPlatformServiceImpl : IDesktopPlatformService
     {
-        public void SetResizeMode(IntPtr hWnd, int value)
+        public void SetResizeMode(IntPtr hWnd, ResizeModeCompat value)
         {
         }
 
@@ -15,12 +16,21 @@ namespace System.Application.Services.Implementation
             return string.Empty;
         }
 
+        public void OpenFolder(string dirPath)
+        {
+        }
+
         public const string kate = "kate";
         public const string vi = "vi";
 
         public string? GetFileName(TextReaderProvider provider)
         {
             return vi;
+        }
+
+        public void SetSystemSessionEnding(Action action)
+        {
+
         }
 
         public void SetBootAutoStart(bool isAutoStart, string name)
@@ -58,7 +68,23 @@ namespace System.Application.Services.Implementation
 
         public void SetLightOrDarkThemeFollowingSystem(bool enable)
         {
+        }
 
+        public Process StartAsInvoker(string fileName)
+        {
+            return Process.Start(fileName);
+        }
+
+        public Process? GetProcessByPortOccupy(ushort port, bool isTCPorUDP = true)
+        {
+            return null;
+        }
+
+        public bool IsAdministrator => false;
+
+        public void UnelevatedProcessStart(string cmdArgs)
+        {
+            throw new PlatformNotSupportedException();
         }
     }
 }

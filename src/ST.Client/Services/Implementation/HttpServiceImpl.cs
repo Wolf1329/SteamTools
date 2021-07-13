@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Polly;
 using System.Collections.Concurrent;
 using System.IO;
 using System.IO.FileFormats;
@@ -11,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using static System.Application.ForwardHelper;
+using static System.Application.Services.CloudService.Constants;
 using static System.Application.Services.IHttpService;
 
 namespace System.Application.Services.Implementation
@@ -19,7 +21,11 @@ namespace System.Application.Services.Implementation
     {
         readonly JsonSerializer jsonSerializer = new();
         readonly Lazy<ICloudServiceClient> _csc = new(() => DI.Get<ICloudServiceClient>());
+
         ICloudServiceClient Csc => _csc.Value;
+        JsonSerializer IHttpService.Serializer => jsonSerializer;
+        IHttpClientFactory IHttpService.Factory => _clientFactory;
+        IHttpPlatformHelper IHttpService.PlatformHelper => http_helper;
 
         public HttpServiceImpl(
             ILoggerFactory loggerFactory,
@@ -29,7 +35,8 @@ namespace System.Application.Services.Implementation
         {
         }
 
-        public async Task<T?> SendAsync<T>(
+        async Task<T?> SendAsync<T>(
+            bool isCheckHttpUrl,
             string? requestUri,
             HttpRequestMessage request,
             string? accept,
@@ -44,6 +51,9 @@ namespace System.Application.Services.Implementation
             try
             {
                 requestUri ??= request.RequestUri.ToString();
+
+                if (!isCheckHttpUrl && !IsHttpUrl(requestUri)) return default;
+
                 if (enableForward && IsAllowUrl(requestUri))
                 {
                     try
@@ -136,15 +146,43 @@ namespace System.Application.Services.Implementation
             return default;
         }
 
+        public Task<T?> SendAsync<T>(
+            string? requestUri,
+            HttpRequestMessage request,
+            string? accept,
+            bool enableForward,
+            CancellationToken cancellationToken,
+            Action<HttpResponseMessage>? handlerResponse = null,
+            Action<HttpResponseMessage>? handlerResponseByIsNotSuccessStatusCode = null,
+            string? clientName = null) where T : notnull
+        {
+            return SendAsync<T>(
+                isCheckHttpUrl: false,
+                requestUri,
+                request,
+                accept,
+                enableForward,
+                cancellationToken,
+                handlerResponse,
+                handlerResponseByIsNotSuccessStatusCode,
+                clientName);
+        }
+
         public Task<T?> GetAsync<T>(
             string requestUri,
             string accept,
-            CancellationToken cancellationToken) where T : notnull
+            CancellationToken cancellationToken,
+            string? cookie = null) where T : notnull
         {
+            if (!IsHttpUrl(requestUri)) return Task.FromResult(default(T?));
             var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+            if (cookie != null)
+            {
+                request.Headers.Add("Cookie", cookie);
+            }
             request.Headers.Accept.ParseAdd(accept);
             request.Headers.UserAgent.ParseAdd(http_helper.UserAgent);
-            return SendAsync<T>(requestUri, request, accept, true, cancellationToken);
+            return SendAsync<T>(isCheckHttpUrl: true, requestUri, request, accept, true, cancellationToken);
         }
 
         async Task<string?> GetImageAsync_(
@@ -169,18 +207,18 @@ namespace System.Application.Services.Implementation
                         }
                         else // 格式不准确
                         {
-                            logger.LogError("GetImageAsync Not Supported ImageFormat: {0}.", format);
+                            logger.LogWarning("GetImageAsync Not Supported ImageFormat: {0}.", format);
                         }
                     }
                     else // 未知的图片格式
                     {
-                        logger.LogError("GetImageAsync Unknown ImageFormat.");
+                        logger.LogWarning("GetImageAsync Unknown ImageFormat.");
                     }
                 }
             }
             catch (Exception e)
             {
-                logger.LogError(e, "GetImageAsync_ Load LocalFile Fail.");
+                logger.LogWarning(e, "GetImageAsync_ Load LocalFile Fail.");
             }
 
             if (localCacheFilePathExists)
@@ -225,13 +263,13 @@ namespace System.Application.Services.Implementation
                         }
                         else // 格式不准确
                         {
-                            logger.LogError("GetImageAsync Download Not Supported ImageFormat: {0}.", format);
+                            logger.LogWarning("GetImageAsync Download Not Supported ImageFormat: {0}.", format);
                             isSupportedImageFormat = false;
                         }
                     }
                     else // 未知的图片格式
                     {
-                        logger.LogError("GetImageAsync Download Unknown ImageFormat.");
+                        logger.LogWarning("GetImageAsync Download Unknown ImageFormat.");
                         isSupportedImageFormat = false;
                     }
                     fileStream.Close();
@@ -256,7 +294,7 @@ namespace System.Application.Services.Implementation
                     return default;
                 }
 #endif
-                logger.LogError(e, "GetImageAsync_ Fail.");
+                logger.LogWarning(e, "GetImageAsync_ Fail.");
             }
 
             return default;
@@ -266,13 +304,41 @@ namespace System.Application.Services.Implementation
 
         public async Task<Stream?> GetImageStreamAsync(string requestUri, string channelType, CancellationToken cancellationToken)
         {
-            var file = await GetImageAsync(requestUri, channelType, cancellationToken);
+            var file = await GetImageLocalFilePathByPollyAsync(requestUri, channelType, cancellationToken);
             return string.IsNullOrEmpty(file) ? null : File.OpenRead(file);
         }
 
-        public async Task<string?> GetImageAsync(string requestUri, string channelType, CancellationToken cancellationToken)
+        #region Polly
+
+        const int numRetries = 5;
+
+        static TimeSpan PollyRetryAttempt(int attemptNumber)
         {
-            if (string.IsNullOrWhiteSpace(requestUri)) return null;
+            var powY = attemptNumber % numRetries;
+            var timeSpan = TimeSpan.FromMilliseconds(Math.Pow(2, powY));
+            int addS = attemptNumber / numRetries;
+            if (addS > 0) timeSpan = timeSpan.Add(TimeSpan.FromSeconds(addS));
+            return timeSpan;
+        }
+
+        #endregion
+
+        Task<string?> IHttpService.GetImageAsync(string requestUri, string channelType, CancellationToken cancellationToken)
+        {
+            return GetImageLocalFilePathByPollyAsync(requestUri, channelType, cancellationToken);
+        }
+
+        public async Task<string?> GetImageLocalFilePathByPollyAsync(string requestUri, string channelType, CancellationToken cancellationToken)
+        {
+            var r = await Policy.HandleResult<string?>(string.IsNullOrWhiteSpace)
+              .WaitAndRetryAsync(numRetries, PollyRetryAttempt)
+              .ExecuteAsync(ct => GetImageLocalFilePathAsync(requestUri, channelType, ct), cancellationToken);
+            return r;
+        }
+
+        public async Task<string?> GetImageLocalFilePathAsync(string requestUri, string channelType, CancellationToken cancellationToken)
+        {
+            if (!IsHttpUrl(requestUri)) return null;
 
             if (get_image_pipeline.ContainsKey(channelType))
             {
@@ -288,8 +354,7 @@ namespace System.Application.Services.Implementation
                 get_image_pipeline.TryAdd(channelType, new ConcurrentDictionary<string, Task<string?>>());
             }
 
-            var dirPath = Path.Combine(IOPath.CacheDirectory, "Images", channelType);
-            IOPath.DirCreateByNotExists(dirPath);
+            var dirPath = GetImagesCacheDirectory(channelType);
             var fileName = Hashs.String.SHA256(requestUri) + FileEx.ImageSource;
             var localCacheFilePath = Path.Combine(dirPath, fileName);
 
@@ -303,6 +368,8 @@ namespace System.Application.Services.Implementation
 
         public async Task<Stream?> GetImageStreamAsync(string requestUri, CancellationToken cancellationToken)
         {
+            if (!IsHttpUrl(requestUri)) return null;
+
             try
             {
                 var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
@@ -327,7 +394,7 @@ namespace System.Application.Services.Implementation
             }
             catch (Exception e)
             {
-                logger.LogError(e, "GetImageStreamAsync Fail.");
+                logger.LogWarning(e, "GetImageStreamAsync Fail.");
             }
             return default;
         }

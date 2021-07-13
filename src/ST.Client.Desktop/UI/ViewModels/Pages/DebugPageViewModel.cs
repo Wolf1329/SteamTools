@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
@@ -12,12 +12,13 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Drawing.Text;
 using System.Globalization;
+using System.IO;
+using System.IO.Pipes;
 using System.Linq;
-using System.Net.NetworkInformation;
 using System.Security;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using static Newtonsoft.Json.JsonConvert;
 
 namespace System.Application.UI.ViewModels
@@ -41,18 +42,33 @@ namespace System.Application.UI.ViewModels
         {
         }
 
-        public async void DebugButton_Click()
+        public void DebugButton_Click()
+        {
+            //DebugButton_Click1();
+            Parallel.For(0, 10, (_, _) =>
+            {
+                DebugButton_Click1();
+                //Task.Run(DebugButton_Click1);
+            });
+        }
+
+        public async void DebugButton_Click1()
         {
             Toast.Show(DateTime.Now.ToString());
 
             StringBuilder @string = new();
 
+            @string.AppendFormatLine("ThreadId: {0}", Thread.CurrentThread.ManagedThreadId);
             @string.AppendFormatLine("CJKTest: {0}", "中文繁體русский языкカタカナ한글");
             @string.AppendFormatLine("CLRVersion: {0}", Environment.Version);
             @string.AppendFormatLine("Culture: {0}", CultureInfo.CurrentCulture);
             @string.AppendFormatLine("UICulture: {0}", CultureInfo.CurrentUICulture);
             @string.AppendFormatLine("DefaultThreadCulture: {0}", CultureInfo.DefaultThreadCurrentCulture);
             @string.AppendFormatLine("DefaultThreadUICulture: {0}", CultureInfo.DefaultThreadCurrentUICulture);
+
+            @string.AppendFormatLine("BaseDirectory: {0}", IOPath.BaseDirectory);
+            @string.AppendFormatLine("AppDataDirectory: {0}", IOPath.AppDataDirectory);
+            @string.AppendFormatLine("CacheDirectory: {0}", IOPath.CacheDirectory);
 
             @string.AppendFormatLine("UserName: {0}", Environment.UserName);
             @string.AppendFormatLine("MachineName: {0}", Environment.MachineName);
@@ -208,16 +224,138 @@ namespace System.Application.UI.ViewModels
             }
             @string.AppendFormatLine("EmbeddedAes: {0}", embeddedAes);
 
-            DebugString = @string.ToString();
+#if DEBUG
+            DI.Get<ITestAppCenter>().Test(@string);
+#endif
+
+            DebugString += @string.ToString() + Environment.NewLine;
         }
 
-        public async void ShowDialogButton_Click()
+        public void ShowDialogButton_Click()
         {
-            ToastService.Current.Notify("中文测试繁體測試🎉🧨🎇🎆🎄🖼🖼🖼🖼");
-            DebugString += ToastService.Current.Message + Environment.NewLine;
-            DebugString += ToastService.Current.IsVisible + Environment.NewLine;
+#if DEBUG
+            if (DI.Platform == Platform.Windows)
+            {
+                //IPCTest();
+                FileShareTest();
+            }
+#endif
+        }
 
-            await IShowWindowService.Instance.Show(typeof(object), CustomWindow.NewVersion);
+#if DEBUG
+        public void IPCTest()
+        {
+            if (AppHelper.ProgramPath.EndsWith(FileEx.EXE))
+            {
+                var consoleProgramPath = AppHelper.ProgramPath.Substring(0, AppHelper.ProgramPath.Length - FileEx.EXE.Length) + ".Console" + FileEx.EXE;
+                if (File.Exists(consoleProgramPath))
+                {
+                    var pipeClient = new Process();
+                    //pipeClient.StartInfo.FileName = "runas.exe";
+                    pipeClient.StartInfo.FileName = consoleProgramPath;
+                    using (var pipeServer = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable))
+                    {
+                        DebugString = string.Format("[SERVER] Current TransmissionMode: {0}.", pipeServer.TransmissionMode);
+
+                        // Pass the client process a handle to the server.
+
+                        var connStr = pipeServer.GetClientHandleAsString();
+                        connStr = Serializable.SMPB64U(connStr);
+                        //pipeClient.StartInfo.Arguments = $"/trustlevel:0x20000 \"\"{consoleProgramPath}\" ipc -key \"{connStr}\"\"";
+                        pipeClient.StartInfo.Arguments = $"ipc -key \"{connStr}\"";
+                        pipeClient.StartInfo.UseShellExecute = false;
+                        pipeClient.Start();
+
+                        pipeServer.DisposeLocalCopyOfClientHandle();
+
+                        try
+                        {
+                            // Read user input and send that to the client process.
+                            using var sw = new StreamWriter(pipeServer);
+                            sw.AutoFlush = true;
+                            // Send a 'sync message' and wait for client to receive it.
+                            sw.WriteLine("SYNC");
+                            pipeServer.WaitForPipeDrain();
+                            // Send the console input to the client process.
+                            //Console.Write("[SERVER] Enter text: ");
+                            //sw.WriteLine(Console.ReadLine());
+                            sw.WriteLine("[SERVER] Enter text: ");
+                        }
+                        // Catch the IOException that is raised if the pipe is broken
+                        // or disconnected.
+                        catch (IOException e)
+                        {
+                            DebugString += Environment.NewLine + string.Format("[SERVER] Error: {0}", e.Message);
+                        }
+                    }
+                    pipeClient.WaitForExit();
+                    pipeClient.Close();
+                    DebugString += Environment.NewLine + "[SERVER] Client quit. Server terminating.";
+                }
+            }
+        }
+
+        public void FileShareTest()
+        {
+            if (AppHelper.ProgramPath.EndsWith(FileEx.EXE))
+            {
+                var consoleProgramPath = AppHelper.ProgramPath.Substring(0, AppHelper.ProgramPath.Length - FileEx.EXE.Length) + ".Console" + FileEx.EXE;
+                if (File.Exists(consoleProgramPath))
+                {
+                    var pipeClient = new Process();
+                    pipeClient.StartInfo.FileName = "runas.exe";
+
+                    var tempFileDirectoryName = IOPath.CacheDirectory;
+                    var tempFileName = Path.GetFileName(Path.GetTempFileName());
+                    var tempFilePath = Path.Combine(tempFileDirectoryName, tempFileName);
+                    IOPath.FileIfExistsItDelete(tempFilePath);
+
+                    using var watcher = new FileSystemWatcher(tempFileDirectoryName, tempFileName)
+                    {
+                        NotifyFilter = NotifyFilters.Attributes
+                            | NotifyFilters.CreationTime
+                            | NotifyFilters.DirectoryName
+                            | NotifyFilters.FileName
+                            | NotifyFilters.LastAccess
+                            | NotifyFilters.LastWrite
+                            | NotifyFilters.Security
+                            | NotifyFilters.Size,
+                    };
+
+                    var connStr = tempFilePath;
+                    connStr = Serializable.SMPB64U(connStr);
+                    pipeClient.StartInfo.Arguments = $"/trustlevel:0x20000 \"\"{consoleProgramPath}\" ipc2 -key \"{connStr}\"\"";
+                    pipeClient.StartInfo.UseShellExecute = false;
+                    pipeClient.Start();
+
+                    pipeClient.WaitForExit();
+                    pipeClient.Close();
+
+                    watcher.WaitForChanged(WatcherChangeTypes.Created, 950);
+                    if (File.Exists(tempFilePath))
+                    {
+                        var value = File.ReadAllText(tempFilePath);
+                        File.Delete(tempFilePath);
+                        DebugString = value;
+                    }
+                }
+            }
+        }
+#endif
+
+        public async void ShowDialogButton_Click1()
+        {
+#if DEBUG
+            await LoginOrRegisterWindowViewModel.FastLoginOrRegisterAsync();
+#endif
+
+            //DI.Get<IDesktopPlatformService>().OpenDesktopIconsSettings();
+
+            //ToastService.Current.Notify("中文测试繁體測試🎉🧨🎇🎆🎄🖼🖼🖼🖼");
+            //DebugString += ToastService.Current.Message + Environment.NewLine;
+            //DebugString += ToastService.Current.IsVisible + Environment.NewLine;
+
+            //await IShowWindowService.Instance.Show(typeof(object), CustomWindow.NewVersion);
 
             //    var r = await MessageBoxCompat.ShowAsync(@"Steam++ v1.1.2   2021-01-29
             //更新内容
@@ -297,41 +435,47 @@ namespace System.Application.UI.ViewModels
             }
         }
 
-        public async void TestServerApiButton_Click()
+        public /*async*/ void TestServerApiButton_Click()
         {
-            DebugString = string.Empty;
-            var client = ICloudServiceClient.Instance;
+#if DEBUG
+            //DebugString = string.Empty;
+            //var client = ICloudServiceClient.Instance;
 
-            var req1 = new SendSmsRequest
-            {
-                PhoneNumber = "18611112222",
-                Type = SmsCodeType.LoginOrRegister,
-            };
+            //var req1 = new SendSmsRequest
+            //{
+            //    PhoneNumber = "00011112222",
+            //    Type = SmsCodeType.LoginOrRegister,
+            //};
 
-            var rsp1 = await client.AuthMessage.SendSms(req1);
+            //var rsp1 = await client.AuthMessage.SendSms(req1);
 
-            if (!rsp1.IsSuccess)
-            {
-                DebugString = $"SendSms: Fail({rsp1.Code}).";
-                return;
-            }
+            //if (!rsp1.IsSuccess)
+            //{
+            //    DebugString = $"SendSms: Fail({rsp1.Code}).";
+            //    return;
+            //}
 
-            var req2 = new LoginOrRegisterRequest
-            {
-                PhoneNumber = req1.PhoneNumber,
-                SmsCode = "666666",
-            };
-            var rsp2 = await ICloudServiceClient.Instance.Account.LoginOrRegister(req2);
+            //var req2 = new LoginOrRegisterRequest
+            //{
+            //    PhoneNumber = req1.PhoneNumber,
+            //    SmsCode = "666666",
+            //};
+            //var rsp2 = await ICloudServiceClient.Instance.Account.LoginOrRegister(req2);
 
-            if (!rsp2.IsSuccess)
-            {
-                DebugString = $"LoginOrRegister: Fail({rsp2.Code}).";
-                return;
-            }
+            //if (!rsp2.IsSuccess)
+            //{
+            //    DebugString = $"LoginOrRegister: Fail({rsp2.Code}).";
+            //    return;
+            //}
 
-            var jsonStr = Serializable2.S(rsp2.Content);
+            //var jsonStr = Serializable2.S(rsp2.Content);
 
-            DebugString = $"JSON: {jsonStr}";
+            //DebugString = $"JSON: {jsonStr}";
+
+#else
+            //await Task.Delay(300);
+            //DebugString = nameof(TestServerApiButton_Click);
+#endif
         }
 
         /// <summary>
@@ -395,5 +539,12 @@ namespace System.Application.UI.ViewModels
             }
             DebugString = s.ToString();
         }
+
+#if DEBUG
+        public interface ITestAppCenter
+        {
+            void Test(StringBuilder @string);
+        }
+#endif
     }
 }
