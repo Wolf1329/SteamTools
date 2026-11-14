@@ -1,5 +1,7 @@
 {
-  "msbuild-sdks": {
-    "MSBuild.Sdk.Extras": "3.0.22"
+  "sdk": {
+    "version": "11.0.100",
+    "rollForward": "latestMajor",
+    "allowPrerelease": false
   }
 }

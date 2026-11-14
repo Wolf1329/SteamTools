@@ -1,0 +1,37 @@
+<UserControl
+    x:Class="BD.WTTS.UI.Views.Pages.AuthenticatorManagementPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:s="https://steampp.net/services"
+    xmlns:spp="https://steampp.net/ui"
+    x:CompileBindings="True"
+    x:DataType="spp:AuthenticatorManagementPageViewModel">
+    <StackPanel Spacing="12">
+        <StackPanel Spacing="4">
+            <TextBlock FontWeight="SemiBold" Text="{Binding Item.AuthName}" TextWrapping="Wrap" />
+            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Platform}" />
+            <TextBlock
+                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                IsVisible="{Binding HasAccountName}"
+                Text="{Binding AccountName}"
+                TextWrapping="Wrap" />
+        </StackPanel>
+        <Button
+            HorizontalAlignment="Stretch"
+            Command="{Binding ShowDetailsCommand}"
+            Content="{x:Static spp:Strings.ViewDetailedData}" />
+        <Button
+            HorizontalAlignment="Stretch"
+            Command="{Binding ExportTokenCommand}"
+            Content="{x:Static spp:Strings.DefaultExport}" />
+        <Button
+            HorizontalAlignment="Stretch"
+            Command="{Binding ExportMaFileCommand}"
+            Content="{x:Static spp:Strings.Auth_ExportmaFile}"
+            IsVisible="{Binding Item.IsSteamAuthenticator}" />
+        <Button
+            HorizontalAlignment="Stretch"
+            Command="{Binding ShowQrCodeCommand}"
+            Content="{x:Static spp:Strings.DisplayQRCode}" />
+    </StackPanel>
+</UserControl>

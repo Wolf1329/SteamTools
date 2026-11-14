@@ -1,0 +1,126 @@
+<UserControl
+    x:Class="BD.WTTS.UI.Views.Pages.SteamQrLoginPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:s="https://steampp.net/services"
+    xmlns:spp="https://steampp.net/ui"
+    xmlns:steam="clr-namespace:BD.SteamClient.Models;assembly=BD.SteamClient"
+    x:CompileBindings="True"
+    x:DataType="spp:SteamQrLoginPageViewModel"
+    MaxWidth="540">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.DetailLabel">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Margin" Value="0,2,12,2" />
+        </Style>
+        <Style Selector="SelectableTextBlock.DetailValue">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,2" />
+        </Style>
+        <Style Selector="TextBlock.SecurityRisk.warning">
+            <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
+        </Style>
+    </UserControl.Styles>
+    <StackPanel Spacing="8">
+        <Border Padding="10,8" Background="{DynamicResource LayerFillColorDefaultBrush}" CornerRadius="6">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <TextBlock FontWeight="SemiBold" Text="{Binding AuthenticatorName}" TextWrapping="Wrap" />
+                <TextBlock Grid.Column="1" TextWrapping="Wrap" >
+                    <TextBlock.Text>
+                        <MultiBinding Converter="{StaticResource StringFormatConverter}">
+                            <Binding Mode="OneTime" Source="{x:Static spp:Strings.L10nAuthIdle_Text122}" />
+                            <Binding Path="AccountName" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+            </Grid>
+        </Border>
+        <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="12"
+                   IsVisible="{Binding RequestDetails, Converter={StaticResource IsNullConverter}}"
+                   Text="{x:Static spp:Strings.L10nAuthIdle_Text045}"
+                   TextWrapping="Wrap" />
+        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                Command="{Binding ScanScreenCommand}" Content="{x:Static spp:Strings.L10nAuthIdle_Text046}"
+                IsEnabled="{Binding CanScan}" IsVisible="{Binding IsScreenCaptureSupported}" />
+        <TextBlock IsVisible="{Binding !IsScreenCaptureSupported}" Text="{x:Static spp:Strings.L10nAuthIdle_Text047}" TextWrapping="Wrap" />
+        <ComboBox HorizontalAlignment="Stretch" IsEnabled="{Binding !IsBusy}"
+                  IsVisible="{Binding HasMultipleChallenges}" ItemsSource="{Binding Challenges}"
+                  PlaceholderText="{x:Static spp:Strings.L10nAuthIdle_Text048}" SelectedItem="{Binding SelectedChallenge}">
+            <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="steam:SteamLoginQrChallenge">
+                    <TextBlock >
+                        <TextBlock.Text>
+                            <MultiBinding Converter="{StaticResource StringFormatConverter}">
+                                <Binding Mode="OneTime" Source="{x:Static spp:Strings.L10nAuthIdle_Text121}" />
+                                <Binding Path="ClientId" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                </DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+        <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                Command="{Binding ReviewCommand}" Content="{x:Static spp:Strings.L10nAuthIdle_Text049}"
+                IsEnabled="{Binding CanScan}" IsVisible="{Binding NeedsReview}" />
+        <ProgressBar Height="3" IsIndeterminate="{Binding IsBusy}" IsVisible="{Binding IsBusy}" />
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap">
+            <TextBlock.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                    <CompiledBindingExtension Path="RequestDetails" Converter="{StaticResource IsNullConverter}" />
+                    <CompiledBindingExtension Path="IsApproved" />
+                </MultiBinding>
+            </TextBlock.IsVisible>
+        </TextBlock>
+        <Border Padding="10" Background="{DynamicResource LayerFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6"
+                IsVisible="{Binding RequestDetails, Converter={StaticResource IsNullConverter}, ConverterParameter=invert}">
+            <StackPanel Spacing="6">
+                <TextBlock FontWeight="SemiBold" Text="{Binding RequestDetails.RiskSummary}" TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="{Binding RequestDetails.DeviceName}" TextWrapping="Wrap" IsVisible="{Binding RequestDetails.HasDeviceName}" />
+                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                               Text="{Binding RequestDetails.Platform}" IsVisible="{Binding RequestDetails.HasPlatform}" />
+                </Grid>
+                <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="4">
+                    <TextBlock Classes="DetailLabel" Text="{x:Static spp:Strings.L10nAuthIdle_Text050}" IsVisible="{Binding RequestDetails.HasLocation}" />
+                    <SelectableTextBlock Grid.Column="1" Classes="DetailValue" Text="{Binding RequestDetails.Location}" IsVisible="{Binding RequestDetails.HasLocation}" />
+                    <TextBlock Grid.Column="2" Classes="DetailLabel" Text="IP" IsVisible="{Binding RequestDetails.HasIpAddress}" />
+                    <SelectableTextBlock Grid.Column="3" Classes="DetailValue" Text="{Binding RequestDetails.IpAddress}" IsVisible="{Binding RequestDetails.HasIpAddress}" />
+                </Grid>
+                <TextBlock Classes="SecurityRisk" Classes.warning="{Binding RequestDetails.IsRiskReported}"
+                           IsVisible="{Binding RequestDetails.HasSecuritySummary}"
+                           Text="{Binding RequestDetails.SecuritySummary}" TextWrapping="Wrap" />
+                <spp:Snackbar IsOpen="True" IsClosable="False" Severity="Warning"
+                              Message="{x:Static spp:Strings.L10nAuthIdle_Text051}" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding !IsApproved}">
+                    <CheckBox VerticalAlignment="Center" Content="{x:Static spp:Strings.L10nAuthIdle_Text052}" IsChecked="{Binding PersistentLogin}" IsEnabled="{Binding CanApprove}" />
+                    <Button Grid.Column="1" Classes="accent" HorizontalContentAlignment="Center"
+                            Command="{Binding ApproveCommand}" Content="{x:Static spp:Strings.L10nAuthIdle_Text053}" IsEnabled="{Binding CanApprove}" />
+                </Grid>
+                <Expander Header="{x:Static spp:Strings.L10nAuthIdle_Text054}" IsExpanded="False">
+                    <Grid Margin="0,4,0,0" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+                        <TextBlock Classes="DetailLabel" Text="SteamID" />
+                        <SelectableTextBlock Grid.Column="1" Classes="DetailValue" Text="{Binding SteamId}" />
+                        <TextBlock Grid.Row="1" Classes="DetailLabel" Text="{x:Static spp:Strings.L10nAuthIdle_Text055}" IsVisible="{Binding RequestDetails.HasLoginHistory}" />
+                        <SelectableTextBlock Grid.Row="1" Grid.Column="1" Classes="DetailValue" Text="{Binding RequestDetails.LoginHistory}" IsVisible="{Binding RequestDetails.HasLoginHistory}" />
+                        <TextBlock Grid.Row="2" Classes="DetailLabel" Text="{x:Static spp:Strings.L10nAuthIdle_Text056}" IsVisible="{Binding RequestDetails.HasLocationAssessment}" />
+                        <SelectableTextBlock Grid.Row="2" Grid.Column="1" Classes="DetailValue" Text="{Binding RequestDetails.LocationAssessment}" IsVisible="{Binding RequestDetails.HasLocationAssessment}" />
+                        <TextBlock Grid.Row="3" Classes="DetailLabel" Text="{x:Static spp:Strings.L10nAuthIdle_Text057}" IsVisible="{Binding RequestDetails.HasUsageAssessment}" />
+                        <SelectableTextBlock Grid.Row="3" Grid.Column="1" Classes="DetailValue" Text="{Binding RequestDetails.UsageAssessment}" IsVisible="{Binding RequestDetails.HasUsageAssessment}" />
+                        <TextBlock Grid.Row="4" Classes="DetailLabel" Text="{x:Static spp:Strings.L10nAuthIdle_Text058}" IsVisible="{Binding RequestDetails.HasRequestedPersistence}" />
+                        <SelectableTextBlock Grid.Row="4" Grid.Column="1" Classes="DetailValue" Text="{Binding RequestDetails.RequestedPersistence}" IsVisible="{Binding RequestDetails.HasRequestedPersistence}" />
+                        <TextBlock Grid.Row="5" Classes="DetailLabel" Text="{x:Static spp:Strings.L10nAuthIdle_Text059}" IsVisible="{Binding RequestDetails.HasGeolocation}" />
+                        <SelectableTextBlock Grid.Row="5" Grid.Column="1" Classes="DetailValue" Text="{Binding RequestDetails.Geolocation}" IsVisible="{Binding RequestDetails.HasGeolocation}" />
+                        <TextBlock Grid.Row="6" Classes="DetailLabel" Text="{x:Static spp:Strings.L10nAuthIdle_Text060}" />
+                        <SelectableTextBlock Grid.Row="6" Grid.Column="1" Classes="DetailValue" Text="{Binding RequestDetails.RequestId}" />
+                        <TextBlock Grid.Row="7" Classes="DetailLabel" Text="{x:Static spp:Strings.L10nAuthIdle_Text061}" />
+                        <SelectableTextBlock Grid.Row="7" Grid.Column="1" Classes="DetailValue" Text="{Binding RequestDetails.ProtocolVersion}" />
+                        <TextBlock Grid.Row="8" Classes="DetailLabel" Text="{x:Static spp:Strings.L10nAuthIdle_Text062}" />
+                        <SelectableTextBlock Grid.Row="8" Grid.Column="1" Classes="DetailValue" Text="{Binding RequestDetails.ReadAt}" />
+                    </Grid>
+                </Expander>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>
